@@ -56,7 +56,7 @@ results_v2/<image_name>/
 | 示例 | 说明 | 结果文件 |
 | --- | --- | --- |
 | ![art component 示例](results_v2/art/comp/XDoG_Guide_0000.svg) | 单个连通组件会被单独导出，后续可以逐个做 DFT。 | `results_v2/art/comp/XDoG_Guide_0000.svg` |
-| ![art component 示例](results_v2/art/comp/XDoG_Guide_0007.svg) | 同一张图会拆分出多个 component，适合检查拆分和预运算输入。 | `results_v2/art/comp/XDoG_Guide_0007.svg` |
+| ![art component 示例](results_v2/art/comp/XDoG_Guide_0027.svg) | 同一张图会拆分出多个 component，适合检查拆分和预运算输入。 | `results_v2/art/comp/XDoG_Guide_0007.svg` |
 | `Sequential` / `Simultaneous` / `Full SVG` | 预运算后的动画数据由网页 `Scene` 模式读取。 | `results_v2/art/dft_data/*.json` |
 
 <p align="center">

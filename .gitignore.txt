@@ -1,5 +1,0 @@
-.vs/
-*.ipch
-packages/
-bin/
-obj/

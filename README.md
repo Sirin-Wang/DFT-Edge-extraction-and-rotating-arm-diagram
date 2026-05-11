@@ -317,7 +317,7 @@ http://127.0.0.1:5174/dft_viewer.html
 - `ProjectFourier.exe`
 - `DftPrecompute.exe`
 - `opencv_world4120.dll`
-- 常见 MSVC 运行库 DLL
+- 常见 `MSVC` 运行库 `DLL`
 - `potrace.exe`
 - 网页 viewer 和示例结果
 - 包内中文说明 `README.md`
@@ -326,7 +326,7 @@ http://127.0.0.1:5174/dft_viewer.html
 
 ### 从源码配置
 
-Windows 下先双击：
+`Windows` 下先双击：
 
 ```cmd
 setup_environment.cmd

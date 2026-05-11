@@ -16,10 +16,8 @@ Release/
 *.tlog/
 
 # Generated Fourier/edge extraction outputs
-results_v2/
 uploads/
 temp_configs/
-dft_scene_params_test.tmp
 
 # Local IDE/user files
 *.user

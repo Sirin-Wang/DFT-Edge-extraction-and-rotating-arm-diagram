@@ -1,3 +1,7 @@
+## 依赖
+
+需要安装`openCV`与`potrace`库
+
 ## 功能
 
 这个程序主要是想实现以下功能
@@ -31,6 +35,12 @@
 `x64\Release\ProjectFourier.exe --no-gui <image>`
 ```
 
+其他参数：
+
+- `--intermediate`保留过程中间图
+- `--clear`清除已有输出
+- `--no gui`不在窗口展示输出图
+
 `DftPrecompute.exe`会直接计算已经处理过的线稿的离散傅里叶变换，并输出动画数据
 
 - `dft_data`动画的数据文件
@@ -50,7 +60,7 @@
 
 ```cmd
 ProjectFourier DFT viewer
-Root: xxxx
+Root: C:\Users\27107\source\repos\ProjectFourier
 Node: C:\Program Files\nodejs\node.exe
 
 Starting local viewer server...
@@ -58,7 +68,7 @@ DFT viewer: http://127.0.0.1:5174/dft_viewer.html
 Keep this window open while using the viewer.
 ```
 
-用来监测端口
+用来监测端口**（不要关闭！）**
 
 所以如果窗口里打印的是 5174，浏览器打开：
 
@@ -67,3 +77,42 @@ http://127.0.0.1:5174/dft_viewer.html
 ```
 
 如果窗口提示 5174 被占用并改到 5175，就用它打印出来的实际地址。
+
+网页中的各个选项功能为：
+
+- `View`用来切换已预运算的数据绘图`Scene`和实时运算`Component`
+- `Image`切换对象
+- `Channel`切换哪个矢量图为蓝本
+- `Scene Mode`切换演示效果：逐部分绘制`Sequential`和所有部分同时绘制`Simultaneous`
+- `Speed``Progress`调整速度和进程
+- `Full Channel`显示你选择的通道的矢量图
+- `Original path`显示当前原始输入路径/组件轮廓
+- `Rotating arms`显示旋臂
+- `Trace`显示绘制的路径
+- `Arm visibility`旋臂可见度
+
+`Component`模式下新增：
+
+- `Component`查看指定序号的连通部分
+
+- `Samples`采样点个数
+- `Order`旋臂排序规则
+- `Arms`旋臂个数
+- `Auto component`在`Sequential`模式下自动切换到下一个连通部分
+- `Clear previous component trace`在`Sequential`模式下自动清除上一个连通部分的轨迹
+- `Record`录制，时间可在配置文件`dft_scene_params`中更改
+
+配置文件主要是决定预运算的参数和一部分网页参数
+
+- `duration`动画默认时间
+- `hold`动画播完暂停时间
+- `target_fps`动画帧数
+- `draw_stride`每隔几个点连一次线
+- `record_seconds`录制时间
+- `component_time_power`曲线长度对播放时间的权重
+
+最上方的都是默认参数，预运算时调用下面的参数
+
+
+
+### 慎用`Componet`+`Simultaneous`，会很卡

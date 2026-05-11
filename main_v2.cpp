@@ -3,7 +3,9 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -60,6 +62,143 @@ static void clearDirectory(const string& dirName) {
 
     _findclose(handle);
 #endif
+}
+
+struct IntermediateImageV2 {
+    string name;
+    Mat image;
+};
+
+static string intermediateNameV2(int index, const string& label) {
+    ostringstream stream;
+    stream << setw(2) << setfill('0') << index << "_" << label;
+    return stream.str();
+}
+
+static Mat resizeForDisplayV2(const Mat& image, const Size& displaySize, bool nearest) {
+    if (image.empty()) return Mat();
+
+    Mat output;
+    int interpolation = nearest ? INTER_NEAREST : INTER_AREA;
+    if (image.size() == displaySize) {
+        output = image.clone();
+    } else {
+        resize(image, output, displaySize, 0, 0, interpolation);
+    }
+    return output;
+}
+
+static Mat normalizeMaskForDisplayV2(const Mat& mask, const Size& displaySize) {
+    if (mask.empty()) return Mat();
+
+    Mat gray;
+    if (mask.channels() == 1) {
+        gray = mask.clone();
+    } else {
+        cvtColor(mask, gray, COLOR_BGR2GRAY);
+    }
+    if (gray.type() != CV_8UC1) {
+        normalize(gray, gray, 0, 255, NORM_MINMAX);
+        gray.convertTo(gray, CV_8U);
+    }
+
+    Mat display = resizeForDisplayV2(gray, displaySize, true);
+    threshold(display, display, 0, 255, THRESH_BINARY);
+    return display;
+}
+
+static Mat normalizeImageForDisplayV2(const Mat& image, const Size& displaySize) {
+    if (image.empty()) return Mat();
+
+    Mat bgr = toBgrImage(image);
+    if (bgr.type() != CV_8UC3) {
+        normalize(bgr, bgr, 0, 255, NORM_MINMAX);
+        bgr.convertTo(bgr, CV_8U);
+    }
+    return resizeForDisplayV2(bgr, displaySize, false);
+}
+
+static Mat makeOverlayPreviewV2(const Mat& baseImage, const Mat& mask, const Size& displaySize,
+                                const Scalar& color) {
+    if (baseImage.empty() || mask.empty()) return Mat();
+
+    Mat base = normalizeImageForDisplayV2(baseImage, displaySize);
+    Mat displayMask = normalizeMaskForDisplayV2(mask, displaySize);
+    if (base.empty() || displayMask.empty()) return Mat();
+
+    Mat colorLayer(base.size(), base.type(), color);
+    Mat blended;
+    addWeighted(base, 0.72, colorLayer, 0.28, 0.0, blended);
+    blended.copyTo(base, displayMask);
+    return base;
+}
+
+static void addIntermediateImageV2(vector<IntermediateImageV2>& images,
+                                   const string& label, const Mat& image) {
+    if (image.empty()) return;
+    images.push_back({label, image.clone()});
+}
+
+static Mat makeContactSheetV2(const vector<IntermediateImageV2>& images) {
+    if (images.empty()) return Mat();
+
+    const int thumbW = 280;
+    const int thumbH = 280;
+    const int labelH = 30;
+    const int pad = 12;
+    const int cols = min(4, max(1, static_cast<int>(images.size())));
+    const int rows = (static_cast<int>(images.size()) + cols - 1) / cols;
+
+    Mat sheet(rows * (thumbH + labelH + pad) + pad,
+              cols * (thumbW + pad) + pad,
+              CV_8UC3,
+              Scalar(246, 246, 246));
+
+    for (int i = 0; i < static_cast<int>(images.size()); ++i) {
+        int col = i % cols;
+        int row = i / cols;
+        int x = pad + col * (thumbW + pad);
+        int y = pad + row * (thumbH + labelH + pad);
+
+        Mat tile = normalizeImageForDisplayV2(images[i].image, Size(thumbW, thumbH));
+        if (tile.empty()) continue;
+
+        Rect target(x, y + labelH, thumbW, thumbH);
+        tile.copyTo(sheet(target));
+        rectangle(sheet, target, Scalar(210, 210, 210), 1);
+        putText(sheet, images[i].name, Point(x, y + 20), FONT_HERSHEY_SIMPLEX,
+                0.48, Scalar(40, 40, 40), 1, LINE_AA);
+    }
+
+    return sheet;
+}
+
+static void writeIntermediateImagesV2(const string& outputDir,
+                                      const vector<IntermediateImageV2>& images) {
+    if (images.empty()) return;
+
+    string intermediateDir = outputDir + "\\intermediate";
+    createDirectory(intermediateDir);
+    clearDirectory(intermediateDir);
+
+    for (int i = 0; i < static_cast<int>(images.size()); ++i) {
+        string path = intermediateDir + "\\" + intermediateNameV2(i, images[i].name) + ".png";
+        imwrite(path, images[i].image);
+    }
+
+    Mat contactSheet = makeContactSheetV2(images);
+    if (!contactSheet.empty()) {
+        imwrite(outputDir + "\\art_intermediate_case.png", contactSheet);
+    }
+}
+
+static void deleteIntermediateImagesV2(const string& outputDir) {
+    string intermediateDir = outputDir + "\\intermediate";
+    clearDirectory(intermediateDir);
+#ifdef _WIN32
+    _rmdir(intermediateDir.c_str());
+#endif
+    remove((outputDir + "\\art_intermediate_case.png").c_str());
 }
 
 static vector<string> findArtImages() {
@@ -159,6 +298,33 @@ static bool processImageV2(const string& imagePath, const V2Options& options) {
         bitwise_and(xdogMask, characterGuides.characterSupport, xdogSupport);
     }
 
+    if (options.saveIntermediates) {
+        vector<IntermediateImageV2> intermediates;
+        addIntermediateImageV2(intermediates, "input_resized", normalizeImageForDisplayV2(resized, resized.size()));
+        addIntermediateImageV2(intermediates, "working_enhanced", normalizeImageForDisplayV2(workSrc, resized.size()));
+        addIntermediateImageV2(intermediates, "subject_mask", normalizeMaskForDisplayV2(characterGuides.subjectMask, resized.size()));
+        addIntermediateImageV2(intermediates, "character_guide", normalizeMaskForDisplayV2(characterGuides.characterGuide, resized.size()));
+        addIntermediateImageV2(intermediates, "xdog_candidate", normalizeMaskForDisplayV2(xdogMask, resized.size()));
+        addIntermediateImageV2(intermediates, "edge_support", normalizeMaskForDisplayV2(strongSupport, resized.size()));
+        addIntermediateImageV2(intermediates, "fine_detail", normalizeMaskForDisplayV2(fineDetail, resized.size()));
+        addIntermediateImageV2(intermediates, "filled_regions", normalizeMaskForDisplayV2(filledRegions, resized.size()));
+        addIntermediateImageV2(intermediates, "region_outlines", normalizeMaskForDisplayV2(regionOutlines, resized.size()));
+        addIntermediateImageV2(intermediates, "structural_support", normalizeMaskForDisplayV2(structuralSupport, resized.size()));
+        addIntermediateImageV2(intermediates, "line_mask_clean", normalizeMaskForDisplayV2(lineMask, resized.size()));
+        addIntermediateImageV2(intermediates, "support_mask", normalizeMaskForDisplayV2(characterGuides.characterSupport, resized.size()));
+        addIntermediateImageV2(intermediates, "xdog_guide_final", normalizeMaskForDisplayV2(xdogGuide, resized.size()));
+        addIntermediateImageV2(intermediates, "xdog_support_final", normalizeMaskForDisplayV2(xdogSupport, resized.size()));
+        addIntermediateImageV2(intermediates, "guide_overlay",
+                               makeOverlayPreviewV2(resized, xdogGuide, resized.size(), Scalar(44, 130, 240)));
+        addIntermediateImageV2(intermediates, "support_overlay",
+                               makeOverlayPreviewV2(resized, xdogSupport, resized.size(), Scalar(45, 185, 105)));
+        writeIntermediateImagesV2(outputDir, intermediates);
+        cout << "  Intermediate case images: " << outputDir << "\\intermediate\\\n";
+        cout << "  Intermediate contact sheet: " << outputDir << "\\art_intermediate_case.png\n";
+    } else {
+        deleteIntermediateImagesV2(outputDir);
+    }
+
     writeMaskOutputsV2(outputDir, "XDoG_Guide", xdogGuide, resized.size());
     writeMaskOutputsV2(outputDir, "XDoG_Support", xdogSupport, resized.size());
 
@@ -201,6 +367,8 @@ int main(int argc, char** argv) {
             options.clearResults = false;
         } else if (arg == "--no-lowres-enhance") {
             options.enhanceLowResolution = false;
+        } else if (arg == "--intermediate" || arg == "--save-intermediate") {
+            options.saveIntermediates = true;
         } else if (arg == "--output" && i + 1 < argc) {
             options.outputRoot = argv[++i];
         } else if (arg == "--max-dim" && i + 1 < argc) {
@@ -234,6 +402,7 @@ int main(int argc, char** argv) {
     cout << "Output root: " << options.outputRoot << "\n";
     cout << "Clear all results: " << (options.clearResults ? "enabled" : "disabled") << "\n";
     cout << "Low-res upscaling: " << (options.enhanceLowResolution ? "enabled" : "disabled") << "\n";
+    cout << "Intermediate output: " << (options.saveIntermediates ? "enabled" : "disabled") << "\n";
 
     int successCount = 0;
     for (const auto& imagePath : imagePaths) {

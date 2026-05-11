@@ -28,6 +28,7 @@ struct V2Options {
     bool showWindows = true;
     bool clearResults = false;
     bool enhanceLowResolution = true;
+    bool saveIntermediates = false;
     double maxProcessingDim = 1180.0;
     double internalScale = 1.30;
     double lowResMinDim = 640.0;

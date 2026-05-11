@@ -34,20 +34,25 @@
     .app {
       display: grid;
       grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
-      min-height: 100vh;
+      height: 100vh;
+      min-height: 0;
+      overflow: hidden;
     }
 
     aside {
       border-right: 1px solid var(--line);
       background: var(--panel);
       padding: 18px;
+      min-height: 0;
       overflow-y: auto;
     }
 
     main {
       min-width: 0;
+      min-height: 0;
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
+      overflow: hidden;
     }
 
     header {
@@ -59,6 +64,13 @@
       padding: 12px 18px;
       border-bottom: 1px solid var(--line);
       background: var(--panel);
+    }
+
+    .header-actions {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
 
     h1 {
@@ -78,6 +90,7 @@
     .canvas-wrap {
       min-height: 0;
       padding: 14px;
+      overflow: hidden;
     }
 
     canvas {
@@ -126,6 +139,7 @@
 
     select,
     input[type="number"],
+    input[type="file"],
     input[type="range"],
     button {
       width: 100%;
@@ -133,13 +147,19 @@
     }
 
     select,
-    input[type="number"] {
+    input[type="number"],
+    input[type="file"] {
       height: 34px;
       border: 1px solid var(--line);
       border-radius: 6px;
       background: #fff;
       color: var(--ink);
       padding: 5px 8px;
+    }
+
+    input[type="file"] {
+      padding: 4px 6px;
+      font-size: 12px;
     }
 
     input[type="range"] {
@@ -151,6 +171,10 @@
       grid-template-columns: 1fr 1fr;
       gap: 8px;
       align-items: end;
+    }
+
+    .param-row[hidden] {
+      display: none;
     }
 
     .button-row {
@@ -220,6 +244,19 @@
       font-weight: 650;
     }
 
+    .log {
+      min-height: 72px;
+      max-height: 190px;
+      overflow: auto;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #171b1b;
+      color: #d9eee9;
+      font: 12px/1.35 Consolas, "Courier New", monospace;
+      white-space: pre-wrap;
+    }
+
     #svgHost {
       position: fixed;
       left: -100000px;
@@ -234,7 +271,7 @@
     @media (max-width: 840px) {
       .app {
         grid-template-columns: 1fr;
-        grid-template-rows: auto minmax(56vh, 1fr);
+        grid-template-rows: minmax(0, 42vh) minmax(0, 1fr);
       }
 
       aside {
@@ -243,7 +280,7 @@
       }
 
       main {
-        min-height: 58vh;
+        min-height: 0;
       }
     }
   </style>
@@ -283,15 +320,132 @@
 
         <label class="component-only" for="componentRange">Component</label>
         <div class="component-only">
-        <input id="componentRange" type="range" min="0" max="0" value="0">
-        <div class="row">
-          <input id="componentNumber" type="number" min="0" max="0" value="0">
-          <button id="reloadButton">Reload</button>
+          <select id="componentSelect"></select>
+          <input id="componentRange" type="range" min="0" max="0" value="0">
+          <div class="row">
+            <input id="componentNumber" type="number" min="0" max="0" value="0">
+            <button id="reloadButton">Reload</button>
+          </div>
+          <div class="button-row">
+            <button id="prevButton">Prev</button>
+            <button id="nextButton">Next</button>
+          </div>
         </div>
+      </div>
+
+      <div class="group">
+        <p class="group-title">Processing</p>
+        <label for="uploadInput">Import Image</label>
+        <input id="uploadInput" type="file" accept=".png,.jpg,.jpeg,.bmp,image/png,image/jpeg,image/bmp">
         <div class="button-row">
-          <button id="prevButton">Prev</button>
-          <button id="nextButton">Next</button>
+          <button id="uploadButton">Upload</button>
+          <button id="extractButton" class="primary">Extract</button>
         </div>
+        <div class="row">
+          <div>
+            <label for="precomputeModeSelect">DFT Mode</label>
+            <select id="precomputeModeSelect">
+              <option value="both" selected>Both</option>
+              <option value="sequential">Sequential</option>
+              <option value="simultaneous">Simultaneous</option>
+              <option value="full_svg">Full SVG</option>
+              <option value="all">All</option>
+            </select>
+          </div>
+          <div>
+            <label for="precomputeChannelSelect">Scope</label>
+            <select id="precomputeChannelSelect">
+              <option value="" selected>Both channels</option>
+              <option value="XDoG_Guide">Guide</option>
+              <option value="XDoG_Support">Support</option>
+            </select>
+          </div>
+        </div>
+        <button id="precomputeButton" class="warn">Run DFT Precompute</button>
+        <label for="taskLog">Task Log</label>
+        <div id="taskLog" class="log">Idle</div>
+      </div>
+
+      <div class="group">
+        <p class="group-title">Scene DFT</p>
+        <label for="sceneParamModeSelect">Params For</label>
+        <select id="sceneParamModeSelect">
+          <option value="sequential" selected>Sequential</option>
+          <option value="simultaneous">Simultaneous</option>
+          <option value="full_svg">Full SVG</option>
+        </select>
+        <div class="row">
+          <div>
+            <label for="sceneSamplesInput">Samples</label>
+            <input id="sceneSamplesInput" type="number" min="64" step="1" value="2048">
+          </div>
+          <div>
+            <label for="sceneArmsInput">Arms</label>
+            <input id="sceneArmsInput" type="number" min="1" step="1" value="320">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="sceneMinLoopSamplesInput">Min Loop</label>
+            <input id="sceneMinLoopSamplesInput" type="number" min="2" step="1" value="24">
+          </div>
+          <div>
+            <label for="sceneMinLoopLengthInput">Min Length</label>
+            <input id="sceneMinLoopLengthInput" type="number" min="0" step="1" value="0">
+          </div>
+        </div>
+        <div class="row">
+          <div id="sceneMaxLoopBox">
+            <label class="check"><input id="sceneMaxLoopEnabled" type="checkbox" checked>Limit Loop</label>
+            <label for="sceneMaxLoopLengthInput">Max Length</label>
+            <input id="sceneMaxLoopLengthInput" type="number" min="0" step="1" value="260">
+          </div>
+          <div>
+            <label for="sceneSmoothPassesInput">Smooth</label>
+            <input id="sceneSmoothPassesInput" type="number" min="0" max="8" step="1" value="1">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="sceneDurationInput">Duration</label>
+            <input id="sceneDurationInput" type="number" min="3" step="1" value="90">
+          </div>
+          <div>
+            <label for="sceneFpsInput">FPS</label>
+            <input id="sceneFpsInput" type="number" min="0" step="1" value="60">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="sceneDrawStrideInput">Draw Stride</label>
+            <input id="sceneDrawStrideInput" type="number" min="1" step="1" value="1">
+          </div>
+          <div>
+            <label for="sceneComponentPowerInput">Time Power</label>
+            <input id="sceneComponentPowerInput" type="number" min="0" max="1.5" step="0.05" value="0.7">
+          </div>
+        </div>
+        <div class="row">
+          <div id="sceneSimArmPartsBox">
+            <label for="sceneSimArmPartsInput">Arm Parts</label>
+            <input id="sceneSimArmPartsInput" type="number" min="0" step="1" value="24">
+          </div>
+        </div>
+        <div id="sceneFullSvgOptions" class="row param-row" hidden>
+          <div>
+            <label for="fullSvgOrderSelect">Full SVG Order</label>
+            <select id="fullSvgOrderSelect">
+              <option value="nearest" selected>Nearest</option>
+              <option value="component">Component</option>
+            </select>
+          </div>
+          <div>
+            <label for="fullSvgCoeffOrderSelect">Coeff Order</label>
+            <select id="fullSvgCoeffOrderSelect">
+              <option value="frequency" selected>Frequency</option>
+              <option value="amplitude">Amplitude</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -369,7 +523,9 @@
     <main>
       <header>
         <h1>DFT Arm Viewer</h1>
-        <div id="status" class="status">Loading</div>
+        <div class="header-actions">
+          <div id="status" class="status">Loading</div>
+        </div>
       </header>
       <div class="canvas-wrap">
         <canvas id="stage"></canvas>
@@ -386,6 +542,7 @@
       channel: document.getElementById("channelSelect"),
       viewMode: document.getElementById("viewModeSelect"),
       sceneMode: document.getElementById("sceneModeSelect"),
+      componentSelect: document.getElementById("componentSelect"),
       componentRange: document.getElementById("componentRange"),
       componentNumber: document.getElementById("componentNumber"),
       reload: document.getElementById("reloadButton"),
@@ -412,6 +569,31 @@
       clearComponentTrail: document.getElementById("clearComponentTrail"),
       armVisibility: document.getElementById("armVisibilityRange"),
       armVisibilityValue: document.getElementById("armVisibilityValue"),
+      uploadInput: document.getElementById("uploadInput"),
+      upload: document.getElementById("uploadButton"),
+      extract: document.getElementById("extractButton"),
+      precomputeMode: document.getElementById("precomputeModeSelect"),
+      precomputeChannel: document.getElementById("precomputeChannelSelect"),
+      precompute: document.getElementById("precomputeButton"),
+      taskLog: document.getElementById("taskLog"),
+      sceneParamMode: document.getElementById("sceneParamModeSelect"),
+      sceneSamples: document.getElementById("sceneSamplesInput"),
+      sceneArms: document.getElementById("sceneArmsInput"),
+      sceneMinLoopSamples: document.getElementById("sceneMinLoopSamplesInput"),
+      sceneMinLoopLength: document.getElementById("sceneMinLoopLengthInput"),
+      sceneMaxLoopBox: document.getElementById("sceneMaxLoopBox"),
+      sceneMaxLoopEnabled: document.getElementById("sceneMaxLoopEnabled"),
+      sceneMaxLoopLength: document.getElementById("sceneMaxLoopLengthInput"),
+      sceneSmoothPasses: document.getElementById("sceneSmoothPassesInput"),
+      sceneDuration: document.getElementById("sceneDurationInput"),
+      sceneFps: document.getElementById("sceneFpsInput"),
+      sceneDrawStride: document.getElementById("sceneDrawStrideInput"),
+      sceneComponentPower: document.getElementById("sceneComponentPowerInput"),
+      sceneSimArmParts: document.getElementById("sceneSimArmPartsInput"),
+      sceneSimArmPartsBox: document.getElementById("sceneSimArmPartsBox"),
+      sceneFullSvgOptions: document.getElementById("sceneFullSvgOptions"),
+      fullSvgOrder: document.getElementById("fullSvgOrderSelect"),
+      fullSvgCoeffOrder: document.getElementById("fullSvgCoeffOrderSelect"),
       componentCount: document.getElementById("componentCount"),
       pathCount: document.getElementById("pathCount"),
       pathLength: document.getElementById("pathLength"),
@@ -443,7 +625,58 @@
       lastSceneFrame: 0,
       seeking: false,
       viewerConfig: {},
-      recordSeconds: 6
+      recordSeconds: 6,
+      uploadedInput: "",
+      activeTaskId: "",
+      sceneParamOverrides: {}
+    };
+
+    const sceneModes = ["sequential", "simultaneous", "full_svg"];
+    const sceneParamDefaults = {
+      sequential: {
+        samples: 2048,
+        arms: 320,
+        min_loop_samples: 24,
+        min_loop_length: 0,
+        max_loop_length: 260,
+        smooth_passes: 0,
+        duration: 90,
+        hold: 3,
+        target_fps: 60,
+        draw_stride: 1,
+        component_time_power: 0.70,
+        coefficient_order: "amplitude"
+      },
+      simultaneous: {
+        samples: 1024,
+        arms: 160,
+        min_loop_samples: 16,
+        min_loop_length: 18,
+        max_loop_length: 260,
+        smooth_passes: 1,
+        duration: 60,
+        hold: 3,
+        target_fps: 60,
+        draw_stride: 2,
+        component_time_power: 1.0,
+        sim_arm_parts: 24,
+        coefficient_order: "amplitude"
+      },
+      full_svg: {
+        samples: 2048,
+        arms: 1024,
+        min_loop_samples: 12,
+        min_loop_length: 8,
+        max_loop_length: 0,
+        smooth_passes: 1,
+        duration: 90,
+        hold: 3,
+        target_fps: 24,
+        draw_stride: 2,
+        component_time_power: 1.0,
+        order: "nearest",
+        coefficient_order: "frequency"
+      }
     };
 
     const ctx = els.canvas.getContext("2d");
@@ -522,6 +755,110 @@
       return clamp(value, min, max);
     }
 
+    function sceneParamKey(mode, key) {
+      return `${mode}.${key}`;
+    }
+
+    function defaultMaxLoopLength(mode) {
+      const value = Number(sceneParamDefaults[mode]?.max_loop_length);
+      return value > 0 ? value : 260;
+    }
+
+    function sceneParamValue(mode, key) {
+      const overrideKey = sceneParamKey(mode, key);
+      if (Object.prototype.hasOwnProperty.call(state.sceneParamOverrides, overrideKey)) {
+        return state.sceneParamOverrides[overrideKey];
+      }
+      if (Object.prototype.hasOwnProperty.call(state.viewerConfig, overrideKey)) {
+        return state.viewerConfig[overrideKey];
+      }
+      if (Object.prototype.hasOwnProperty.call(state.viewerConfig, key)) {
+        return state.viewerConfig[key];
+      }
+      return sceneParamDefaults[mode]?.[key] ?? "";
+    }
+
+    function setSceneParamOverride(key, value) {
+      const mode = els.sceneParamMode.value;
+      if (!sceneModes.includes(mode)) return;
+      state.sceneParamOverrides[sceneParamKey(mode, key)] = String(value ?? "").trim();
+    }
+
+    function sceneMaxLoopEnabledValue(mode) {
+      const overrideKey = sceneParamKey(mode, "max_loop_enabled");
+      if (Object.prototype.hasOwnProperty.call(state.sceneParamOverrides, overrideKey)) {
+        return state.sceneParamOverrides[overrideKey] === "true";
+      }
+      return Number(sceneParamValue(mode, "max_loop_length")) > 0;
+    }
+
+    function sceneMaxLoopParamValue(mode) {
+      if (!sceneMaxLoopEnabledValue(mode) || mode === "full_svg") return "0";
+      const value = Number(sceneParamValue(mode, "max_loop_length"));
+      return String(value > 0 ? value : defaultMaxLoopLength(mode));
+    }
+
+    function setSceneMaxLoopEnabled(value) {
+      const mode = els.sceneParamMode.value;
+      if (!sceneModes.includes(mode)) return;
+      state.sceneParamOverrides[sceneParamKey(mode, "max_loop_enabled")] = value ? "true" : "false";
+      els.sceneMaxLoopLength.disabled = !value;
+      if (value && Number(els.sceneMaxLoopLength.value) <= 0) {
+        els.sceneMaxLoopLength.value = defaultMaxLoopLength(mode);
+      }
+      if (value) setSceneParamOverride("max_loop_length", els.sceneMaxLoopLength.value);
+    }
+
+    function loadSceneParamControls() {
+      const mode = sceneModes.includes(els.sceneParamMode.value) ? els.sceneParamMode.value : "sequential";
+      els.sceneParamMode.value = mode;
+      const maxLoopEnabled = sceneMaxLoopEnabledValue(mode);
+      const maxLoopLength = Number(sceneParamValue(mode, "max_loop_length"));
+      els.sceneSamples.value = sceneParamValue(mode, "samples");
+      els.sceneArms.value = sceneParamValue(mode, "arms");
+      els.sceneMinLoopSamples.value = sceneParamValue(mode, "min_loop_samples");
+      els.sceneMinLoopLength.value = sceneParamValue(mode, "min_loop_length");
+      els.sceneMaxLoopEnabled.checked = maxLoopEnabled && mode !== "full_svg";
+      els.sceneMaxLoopLength.value = maxLoopLength > 0 ? maxLoopLength : defaultMaxLoopLength(mode);
+      els.sceneMaxLoopLength.disabled = !els.sceneMaxLoopEnabled.checked;
+      els.sceneSmoothPasses.value = sceneParamValue(mode, "smooth_passes");
+      els.sceneDuration.value = sceneParamValue(mode, "duration");
+      els.sceneFps.value = sceneParamValue(mode, "target_fps");
+      els.sceneDrawStride.value = sceneParamValue(mode, "draw_stride");
+      els.sceneComponentPower.value = sceneParamValue(mode, "component_time_power");
+      els.sceneSimArmParts.value = sceneParamValue(mode, "sim_arm_parts");
+      els.fullSvgOrder.value = sceneParamValue(mode, "order") || "nearest";
+      els.fullSvgCoeffOrder.value = sceneParamValue(mode, "coefficient_order") || "frequency";
+      els.sceneSimArmPartsBox.hidden = mode !== "simultaneous";
+      els.sceneMaxLoopBox.hidden = mode === "full_svg";
+      els.sceneFullSvgOptions.hidden = mode !== "full_svg";
+    }
+
+    function precomputeTargetModes() {
+      const mode = els.precomputeMode.value;
+      if (mode === "both") return ["sequential", "simultaneous"];
+      if (mode === "all") return ["sequential", "simultaneous", "full_svg"];
+      return sceneModes.includes(mode) ? [mode] : ["sequential", "simultaneous"];
+    }
+
+    function collectSceneParams() {
+      const params = {};
+      for (const mode of precomputeTargetModes()) {
+        for (const key of ["samples", "arms", "min_loop_samples", "min_loop_length", "smooth_passes", "duration", "target_fps", "draw_stride", "component_time_power"]) {
+          params[sceneParamKey(mode, key)] = sceneParamValue(mode, key);
+        }
+        params[sceneParamKey(mode, "max_loop_length")] = sceneMaxLoopParamValue(mode);
+        if (mode === "simultaneous") {
+          params[sceneParamKey(mode, "sim_arm_parts")] = sceneParamValue(mode, "sim_arm_parts");
+        }
+        if (mode === "full_svg") {
+          params[sceneParamKey(mode, "order")] = sceneParamValue(mode, "order");
+          params[sceneParamKey(mode, "coefficient_order")] = sceneParamValue(mode, "coefficient_order");
+        }
+      }
+      return params;
+    }
+
     function updateRecordLabel() {
       const seconds = Number(state.recordSeconds);
       const label = Number.isInteger(seconds) ? String(seconds) : seconds.toFixed(1);
@@ -543,6 +880,7 @@
 
       state.recordSeconds = configNumber("record_seconds", 6, 1, 600);
       updateRecordLabel();
+      loadSceneParamControls();
     }
 
     async function refreshComponentList() {
@@ -558,6 +896,12 @@
       } catch (err) {
         state.componentFiles = [];
       }
+      els.componentSelect.replaceChildren(...state.componentFiles.map((file, index) => {
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = `${index}: ${file}`;
+        return option;
+      }));
     }
 
     async function refreshImageList() {
@@ -590,7 +934,111 @@
       els.componentNumber.max = maxIndex;
       els.componentRange.value = index;
       els.componentNumber.value = index;
+      els.componentSelect.value = String(index);
       els.componentCount.textContent = count;
+    }
+
+    function setTaskLog(text) {
+      els.taskLog.textContent = text || "Idle";
+      els.taskLog.scrollTop = els.taskLog.scrollHeight;
+    }
+
+    function setProcessingBusy(busy) {
+      els.upload.disabled = busy;
+      els.extract.disabled = busy;
+      els.precompute.disabled = busy;
+    }
+
+    async function postJson(url, body) {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body || {})
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `${response.status} ${response.statusText}`);
+      return data;
+    }
+
+    async function watchTask(taskId, afterComplete) {
+      state.activeTaskId = taskId;
+      setProcessingBusy(true);
+      while (state.activeTaskId === taskId) {
+        const response = await fetch(`/api/task?id=${encodeURIComponent(taskId)}`, { cache: "no-store" });
+        const task = await response.json();
+        if (!response.ok) throw new Error(task.error || "Task failed");
+        setTaskLog(`${task.label}\n${task.status}${task.code === null ? "" : ` (${task.code})`}\n\n${task.log || ""}`);
+        if (task.status === "completed" || task.status === "failed") {
+          state.activeTaskId = "";
+          setProcessingBusy(false);
+          if (task.status === "completed" && afterComplete) await afterComplete(task);
+          return task;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      }
+      setProcessingBusy(false);
+    }
+
+    async function uploadSelectedFile() {
+      setProcessingBusy(true);
+      try {
+        const file = els.uploadInput.files && els.uploadInput.files[0];
+        if (!file) {
+          setTaskLog("Choose an image file first.");
+          return null;
+        }
+        const form = new FormData();
+        form.append("file", file);
+        setTaskLog(`Uploading ${file.name}...`);
+        const response = await fetch("/api/upload", { method: "POST", body: form });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `${response.status} ${response.statusText}`);
+        state.uploadedInput = data.path;
+        setTaskLog(`Uploaded ${data.path}`);
+        return data;
+      } finally {
+        setProcessingBusy(false);
+      }
+    }
+
+    async function runExtraction() {
+      try {
+        let upload = null;
+        if (els.uploadInput.files && els.uploadInput.files[0]) upload = await uploadSelectedFile();
+        const input = upload?.path || state.uploadedInput;
+        if (!input) {
+          setTaskLog("Upload an image before extraction.");
+          return;
+        }
+        const data = await postJson("/api/process", { input });
+        await watchTask(data.taskId, async () => {
+          await refreshImageList();
+          const imageName = (upload?.image || input.split(/[\\/]/).pop().replace(/\.[^.]+$/, ""));
+          if (state.images.includes(imageName)) els.image.value = imageName;
+          await refreshComponentList();
+          updateComponentControls();
+          if (isSceneMode()) loadCurrentScene();
+          else loadCurrentComponent();
+        });
+      } catch (err) {
+        setTaskLog(`Error: ${err.message}`);
+      }
+    }
+
+    async function runPrecompute() {
+      try {
+        const data = await postJson("/api/precompute", {
+          image: els.image.value,
+          mode: els.precomputeMode.value,
+          channel: els.precomputeChannel.value,
+          params: collectSceneParams()
+        });
+        await watchTask(data.taskId, async () => {
+          if (isSceneMode()) loadCurrentScene();
+        });
+      } catch (err) {
+        setTaskLog(`Error: ${err.message}`);
+      }
     }
 
     function clearSavedComponentTrail() {
@@ -1852,6 +2300,7 @@
       const next = clamp(index, 0, count - 1);
       els.componentRange.value = next;
       els.componentNumber.value = next;
+      els.componentSelect.value = String(next);
     }
 
     function stepComponent(delta, options = {}) {
@@ -1986,6 +2435,14 @@
         loadCurrentComponent();
       });
 
+      els.componentSelect.addEventListener("change", () => {
+        rememberOrClearComponentTrail();
+        setComponentIndex(Number(els.componentSelect.value));
+        state.t = 0;
+        updateProgressLabel();
+        loadCurrentComponent();
+      });
+
       els.componentNumber.addEventListener("change", () => {
         rememberOrClearComponentTrail();
         setComponentIndex(Number(els.componentNumber.value));
@@ -2063,6 +2520,37 @@
       });
 
       els.record.addEventListener("click", recordClip);
+      els.upload.addEventListener("click", async () => {
+        try {
+          const upload = await uploadSelectedFile();
+          if (upload) setStatus(`Uploaded ${upload.path}`);
+        } catch (err) {
+          setTaskLog(`Error: ${err.message}`);
+        }
+      });
+      els.extract.addEventListener("click", runExtraction);
+      els.precompute.addEventListener("click", runPrecompute);
+      els.precomputeMode.addEventListener("change", () => {
+        if (sceneModes.includes(els.precomputeMode.value)) {
+          els.sceneParamMode.value = els.precomputeMode.value;
+          loadSceneParamControls();
+        }
+      });
+      els.sceneParamMode.addEventListener("change", loadSceneParamControls);
+      els.sceneSamples.addEventListener("input", () => setSceneParamOverride("samples", els.sceneSamples.value));
+      els.sceneArms.addEventListener("input", () => setSceneParamOverride("arms", els.sceneArms.value));
+      els.sceneMinLoopSamples.addEventListener("input", () => setSceneParamOverride("min_loop_samples", els.sceneMinLoopSamples.value));
+      els.sceneMinLoopLength.addEventListener("input", () => setSceneParamOverride("min_loop_length", els.sceneMinLoopLength.value));
+      els.sceneMaxLoopEnabled.addEventListener("change", () => setSceneMaxLoopEnabled(els.sceneMaxLoopEnabled.checked));
+      els.sceneMaxLoopLength.addEventListener("input", () => setSceneParamOverride("max_loop_length", els.sceneMaxLoopLength.value));
+      els.sceneSmoothPasses.addEventListener("input", () => setSceneParamOverride("smooth_passes", els.sceneSmoothPasses.value));
+      els.sceneDuration.addEventListener("input", () => setSceneParamOverride("duration", els.sceneDuration.value));
+      els.sceneFps.addEventListener("input", () => setSceneParamOverride("target_fps", els.sceneFps.value));
+      els.sceneDrawStride.addEventListener("input", () => setSceneParamOverride("draw_stride", els.sceneDrawStride.value));
+      els.sceneComponentPower.addEventListener("input", () => setSceneParamOverride("component_time_power", els.sceneComponentPower.value));
+      els.sceneSimArmParts.addEventListener("input", () => setSceneParamOverride("sim_arm_parts", els.sceneSimArmParts.value));
+      els.fullSvgOrder.addEventListener("change", () => setSceneParamOverride("order", els.fullSvgOrder.value));
+      els.fullSvgCoeffOrder.addEventListener("change", () => setSceneParamOverride("coefficient_order", els.fullSvgCoeffOrder.value));
 
       for (const checkbox of [els.showBackground, els.showOriginal, els.showArms, els.showTrace]) {
         checkbox.addEventListener("change", render);

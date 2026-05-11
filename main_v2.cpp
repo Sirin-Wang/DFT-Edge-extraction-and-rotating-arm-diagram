@@ -30,6 +30,150 @@ static string pathStem(const string& path) {
     return path.substr(start, dot - start);
 }
 
+static Mat buildLowerBodySoftSupportV2(const Mat& bgr, const Mat& lowerBodyGuide,
+                                       const Mat& subjectMask, const Mat& anchorLines) {
+    if (bgr.empty() || lowerBodyGuide.empty() || subjectMask.empty()) return Mat();
+
+    Mat lowerMask;
+    threshold(lowerBodyGuide, lowerMask, 0, 255, THRESH_BINARY);
+    if (lowerMask.empty() || countNonZero(lowerMask) == 0) return Mat::zeros(bgr.size(), CV_8UC1);
+    if (lowerMask.size() != bgr.size()) {
+        resize(lowerMask, lowerMask, bgr.size(), 0, 0, INTER_NEAREST);
+    }
+
+    Mat subject;
+    threshold(subjectMask, subject, 0, 255, THRESH_BINARY);
+    if (subject.size() != bgr.size()) {
+        resize(subject, subject, bgr.size(), 0, 0, INTER_NEAREST);
+    }
+    lowerMask &= subject;
+
+    Mat lab, hsv;
+    cvtColor(bgr, lab, COLOR_BGR2Lab);
+    cvtColor(bgr, hsv, COLOR_BGR2HSV);
+
+    vector<Mat> labChannels, hsvChannels;
+    split(lab, labChannels);
+    split(hsv, hsvChannels);
+
+    Mat lBlur;
+    bilateralFilter(labChannels[0], lBlur, 5, 24.0, 5.0);
+
+    Mat bright, lowSat, legTone;
+    threshold(labChannels[0], bright, 170, 255, THRESH_BINARY);
+    threshold(hsvChannels[1], lowSat, 58, 255, THRESH_BINARY_INV);
+    legTone = bright & lowSat & lowerMask;
+    morphologyEx(legTone, legTone, MORPH_OPEN, getStructuringElement(MORPH_ELLIPSE, Size(3, 3)));
+    morphologyEx(legTone, legTone, MORPH_CLOSE, getStructuringElement(MORPH_ELLIPSE, Size(7, 7)));
+    {
+        Mat labels, stats, centroids;
+        int count = connectedComponentsWithStats(legTone, labels, stats, centroids, 8, CV_32S);
+        Mat keptTone = Mat::zeros(legTone.size(), CV_8UC1);
+        int minLegArea = max(48, static_cast<int>(legTone.total() / 9000));
+        int minLegBottom = static_cast<int>(legTone.rows * 0.76);
+        int maxLegWidth = max(18, static_cast<int>(legTone.cols * 0.18));
+        for (int label = 1; label < count; ++label) {
+            int area = stats.at<int>(label, CC_STAT_AREA);
+            if (area < minLegArea) continue;
+
+            int x = stats.at<int>(label, CC_STAT_LEFT);
+            int y = stats.at<int>(label, CC_STAT_TOP);
+            int width = stats.at<int>(label, CC_STAT_WIDTH);
+            int height = stats.at<int>(label, CC_STAT_HEIGHT);
+            int bottom = y + height;
+            double cx = centroids.at<double>(label, 0);
+            bool likelyLeg = bottom >= minLegBottom
+                          && height >= legTone.rows * 0.16
+                          && width <= maxLegWidth
+                          && height >= width * 1.80
+                          && cx >= legTone.cols * 0.20
+                          && cx <= legTone.cols * 0.80
+                          && x > 0;
+            if (!likelyLeg) continue;
+
+            Mat componentMask;
+            compare(labels, label, componentMask, CMP_EQ);
+            keptTone.setTo(255, componentMask);
+        }
+        if (countNonZero(keptTone) > 0) {
+            legTone = keptTone;
+        }
+    }
+    if (countNonZero(legTone) == 0) return Mat::zeros(bgr.size(), CV_8UC1);
+
+    Mat toneBand;
+    dilate(legTone, toneBand, getStructuringElement(MORPH_ELLIPSE, Size(5, 5)));
+    toneBand &= lowerMask;
+
+    Mat softEdges, verySoftEdges;
+    Canny(lBlur, softEdges, 4, 18);
+    Canny(lBlur, verySoftEdges, 7, 26);
+
+    Mat softShadows;
+    adaptiveThreshold(lBlur, softShadows, 255, ADAPTIVE_THRESH_GAUSSIAN_C, THRESH_BINARY_INV, 31, 3);
+    softShadows &= toneBand;
+    morphologyEx(softShadows, softShadows, MORPH_OPEN, getStructuringElement(MORPH_ELLIPSE, Size(3, 3)));
+    softShadows = removeSmallComponents(softShadows, max(8, static_cast<int>(softShadows.total() / 120000)));
+    Mat softShadowOutlines = outlineFilledRegionComponents(softShadows);
+
+    Mat gradX, gradY, gradMag;
+    Sobel(lBlur, gradX, CV_16S, 1, 0, 3);
+    Sobel(lBlur, gradY, CV_16S, 0, 1, 3);
+    Mat absX, absY;
+    convertScaleAbs(gradX, absX);
+    convertScaleAbs(gradY, absY);
+    addWeighted(absX, 0.5, absY, 0.5, 0.0, gradMag);
+
+    Mat gentleGradient;
+    threshold(gradMag, gentleGradient, 10, 255, THRESH_BINARY);
+    gentleGradient &= toneBand;
+
+    Mat candidates = (softEdges | verySoftEdges | gentleGradient | softShadowOutlines) & toneBand;
+    morphologyEx(candidates, candidates, MORPH_CLOSE, getStructuringElement(MORPH_CROSS, Size(2, 2)));
+
+    Mat nearAnchor = Mat::zeros(candidates.size(), CV_8UC1);
+    if (!anchorLines.empty() && anchorLines.size() == candidates.size() && countNonZero(anchorLines) > 0) {
+        dilate(anchorLines, nearAnchor, getStructuringElement(MORPH_ELLIPSE, Size(9, 9)));
+    } else {
+        nearAnchor = lowerMask.clone();
+    }
+
+    Mat labels, stats, centroids;
+    int count = connectedComponentsWithStats(candidates, labels, stats, centroids, 8, CV_32S);
+    Mat kept = Mat::zeros(candidates.size(), CV_8UC1);
+    int minArea = max(3, static_cast<int>(candidates.total() / 220000));
+    int maxArea = max(80, static_cast<int>(candidates.total() / 260));
+
+    for (int label = 1; label < count; ++label) {
+        int area = stats.at<int>(label, CC_STAT_AREA);
+        if (area < minArea || area > maxArea) continue;
+
+        int width = stats.at<int>(label, CC_STAT_WIDTH);
+        int height = stats.at<int>(label, CC_STAT_HEIGHT);
+        int longSide = max(width, height);
+        int shortSide = max(1, min(width, height));
+        double fillRatio = area / static_cast<double>(max(1, width * height));
+        double slenderness = longSide / static_cast<double>(shortSide);
+
+        Mat componentMask;
+        compare(labels, label, componentMask, CMP_EQ);
+
+        Mat anchorOverlap;
+        bitwise_and(componentMask, nearAnchor, anchorOverlap);
+        int anchorHits = countNonZero(anchorOverlap);
+
+        bool lineLike = shortSide <= 5 || slenderness >= 1.35 || fillRatio <= 0.46;
+        bool supported = anchorHits >= 2 || longSide >= 8 || (area >= 10 && fillRatio <= 0.36);
+        bool compactPatch = fillRatio > 0.68 && slenderness < 1.65 && longSide < 24;
+        if (lineLike && supported && !compactPatch) {
+            kept.setTo(255, componentMask);
+        }
+    }
+
+    kept = removeSmallComponents(kept, minArea);
+    return kept;
+}
+
 static void createDirectory(const string& dirName) {
 #ifdef _WIN32
     _mkdir(dirName.c_str());
@@ -290,7 +434,7 @@ static bool processImageV2(const string& imagePath, const V2Options& options) {
                                                                    characterGuides.subjectMask,
                                                                    characterGuides.characterGuide);
 
-    Mat xdogGuide, xdogSupport;
+    Mat xdogGuide, xdogSupport, lowerBodySoftSupport;
     if (!xdogMask.empty() && !characterGuides.characterGuide.empty()) {
         bitwise_and(xdogMask, characterGuides.characterGuide, xdogGuide);
         xdogGuide = removeFilledColorBlocksV2(xdogGuide);
@@ -300,7 +444,18 @@ static bool processImageV2(const string& imagePath, const V2Options& options) {
     if (!xdogMask.empty() && !characterGuides.characterSupport.empty()) {
         bitwise_and(xdogMask, characterGuides.characterSupport, xdogSupport);
         xdogSupport |= recoverLineLikeSupportV2(lineMask, xdogSupport, characterGuides.characterSupport);
+        if (!xdogGuide.empty() && xdogGuide.size() == xdogSupport.size()) {
+            xdogSupport |= xdogGuide;
+        }
+        lowerBodySoftSupport = buildLowerBodySoftSupportV2(toBgrImage(workSrc),
+                                                           characterGuides.lowerBodyGuide,
+                                                           characterGuides.subjectMask,
+                                                           xdogSupport | lineMask);
+        if (!lowerBodySoftSupport.empty()) {
+            xdogSupport |= lowerBodySoftSupport;
+        }
         xdogSupport = removeFilledColorBlocksV2(xdogSupport);
+        xdogSupport = hollowThickColorCoresV2(xdogSupport);
         xdogSupport = cleanBinaryMaskForContours(xdogSupport);
     }
 
@@ -318,6 +473,7 @@ static bool processImageV2(const string& imagePath, const V2Options& options) {
         addIntermediateImageV2(intermediates, "structural_support", normalizeMaskForDisplayV2(structuralSupport, resized.size()));
         addIntermediateImageV2(intermediates, "line_mask_clean", normalizeMaskForDisplayV2(lineMask, resized.size()));
         addIntermediateImageV2(intermediates, "support_mask", normalizeMaskForDisplayV2(characterGuides.characterSupport, resized.size()));
+        addIntermediateImageV2(intermediates, "lower_body_soft_support", normalizeMaskForDisplayV2(lowerBodySoftSupport, resized.size()));
         addIntermediateImageV2(intermediates, "xdog_guide_final", normalizeMaskForDisplayV2(xdogGuide, resized.size()));
         addIntermediateImageV2(intermediates, "xdog_support_final", normalizeMaskForDisplayV2(xdogSupport, resized.size()));
         addIntermediateImageV2(intermediates, "guide_overlay",

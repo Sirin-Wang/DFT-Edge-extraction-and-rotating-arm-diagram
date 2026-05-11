@@ -51,6 +51,9 @@ struct V2DftSceneParams {
     int samples = 512;
     int arms = 96;
     int minLoopSamples = 16;
+    double minLoopLength = 0.0;
+    double maxLoopLength = 0.0;
+    int smoothPasses = 0;
     double duration = 60.0;
     double hold = 3.0;
     int simArmParts = 24;
@@ -218,6 +221,97 @@ static vector<V2DftPoint> resamplePolylineV2Dft(const vector<V2DftPoint>& points
         });
     }
     return sampled;
+}
+
+static bool isClosedPolylineV2Dft(const vector<V2DftPoint>& points) {
+    if (points.size() < 3) return false;
+    double length = polylineLengthV2Dft(points);
+    double tolerance = std::max(0.001, length * 0.000001);
+    return distanceV2Dft(points.front(), points.back()) <= tolerance;
+}
+
+static vector<V2DftPoint> smoothPolylineV2Dft(const vector<V2DftPoint>& points, int passes, bool closed) {
+    if (points.size() < 3 || passes <= 0) return points;
+    vector<V2DftPoint> current = points;
+    vector<V2DftPoint> next = points;
+    size_t workCount = current.size();
+    if (closed && current.size() > 3) {
+        double tolerance = std::max(0.001, polylineLengthV2Dft(current) * 0.000001);
+        if (distanceV2Dft(current.front(), current.back()) <= tolerance) {
+            workCount = current.size() - 1;
+        }
+    }
+
+    for (int pass = 0; pass < passes; ++pass) {
+        for (size_t i = 0; i < workCount; ++i) {
+            if (!closed && (i == 0 || i + 1 == current.size())) {
+                next[i] = current[i];
+                continue;
+            }
+            size_t prev = i == 0 ? workCount - 1 : i - 1;
+            size_t nextIndex = i + 1 == workCount ? 0 : i + 1;
+            next[i] = {
+                current[i].x * 0.50 + (current[prev].x + current[nextIndex].x) * 0.25,
+                current[i].y * 0.50 + (current[prev].y + current[nextIndex].y) * 0.25
+            };
+        }
+        if (closed && workCount < next.size()) next[workCount] = next[0];
+        current.swap(next);
+    }
+    return current;
+}
+
+static vector<vector<V2DftPoint>> splitPolylineByLengthV2Dft(const vector<V2DftPoint>& points, double maxLength) {
+    vector<vector<V2DftPoint>> parts;
+    if (points.size() < 2 || maxLength <= 0.0) {
+        if (points.size() > 1) parts.push_back(points);
+        return parts;
+    }
+
+    vector<V2DftPoint> current;
+    current.push_back(points.front());
+    double currentLength = 0.0;
+
+    for (size_t i = 1; i < points.size(); ++i) {
+        V2DftPoint from = points[i - 1];
+        V2DftPoint to = points[i];
+        double segmentLength = distanceV2Dft(from, to);
+        if (segmentLength <= 0.0) continue;
+
+        double consumed = 0.0;
+        while (consumed < segmentLength) {
+            double remainingSegment = segmentLength - consumed;
+            double remainingPart = maxLength - currentLength;
+            if (remainingPart <= 0.0) {
+                if (current.size() > 1) parts.push_back(current);
+                current.clear();
+                current.push_back(from);
+                currentLength = 0.0;
+                remainingPart = maxLength;
+            }
+
+            if (remainingSegment <= remainingPart) {
+                current.push_back(to);
+                currentLength += remainingSegment;
+                consumed = segmentLength;
+            } else {
+                double t = (consumed + remainingPart) / segmentLength;
+                V2DftPoint splitPoint{
+                    from.x + (to.x - from.x) * t,
+                    from.y + (to.y - from.y) * t
+                };
+                current.push_back(splitPoint);
+                if (current.size() > 1) parts.push_back(current);
+                current.clear();
+                current.push_back(splitPoint);
+                currentLength = 0.0;
+                consumed += remainingPart;
+            }
+        }
+    }
+
+    if (current.size() > 1) parts.push_back(current);
+    return parts;
 }
 
 static vector<int> allocateSampleCountsV2Dft(const vector<double>& lengths, int targetCount, int preferredMinCount = 1) {
@@ -546,6 +640,12 @@ static V2DftSceneParams paramsForModeV2Dft(const map<string, string>& config, co
     params.minLoopSamples = configIntV2Dft(config, mode, "min_loop_samples",
                                            mode == "sequential" ? 24 : (mode == "simultaneous" ? 16 : 2),
                                            2, 128);
+    params.minLoopLength = configDoubleV2Dft(config, mode, "min_loop_length",
+                                             mode == "full_svg" ? 6.0 : 12.0, 0.0, 1000.0);
+    params.maxLoopLength = configDoubleV2Dft(config, mode, "max_loop_length",
+                                             mode == "full_svg" ? 0.0 : 260.0, 0.0, 1000000.0);
+    params.smoothPasses = configIntV2Dft(config, mode, "smooth_passes",
+                                         mode == "full_svg" ? 1 : 1, 0, 8);
     params.duration = configDoubleV2Dft(config, mode, "duration", 60.0, 3.0, 600.0);
     params.hold = configDoubleV2Dft(config, mode, "hold", 3.0, 0.0, 120.0);
     params.simArmParts = configIntV2Dft(config, mode, "sim_arm_parts", 24, 0, 9999);
@@ -659,6 +759,9 @@ static bool writeDftSceneJsonV2Dft(const string& outputPath, const string& image
         << ",\"height\":" << height << "},";
     out << "\"samples\":" << params.samples << ",\"arms\":" << params.arms
         << ",\"minLoopSamples\":" << params.minLoopSamples
+        << ",\"minLoopLength\":" << fixed << setprecision(3) << params.minLoopLength
+        << ",\"maxLoopLength\":" << fixed << setprecision(3) << params.maxLoopLength
+        << ",\"smoothPasses\":" << params.smoothPasses
         << ",\"duration\":" << params.duration << ",\"hold\":" << params.hold
         << ",\"simArmParts\":" << params.simArmParts << ",\"targetFps\":" << params.targetFps
         << ",\"drawStride\":" << params.drawStride
@@ -1035,8 +1138,13 @@ static bool precomputeFullSvgDftSceneV2(const string& resultDir, const string& i
     lengths.reserve(flattened.size());
     double totalLength = 0.0;
     for (const auto& loop : flattened) {
+        if (loop.length < params.minLoopLength) continue;
         lengths.push_back(loop.length);
         totalLength += loop.length;
+    }
+    if (lengths.empty() || totalLength <= 0.0) {
+        cout << "  No loops longer than min_loop_length for full_svg " << image << " / " << channel << "\n";
+        return false;
     }
 
     int targetSamples = std::max(64, params.samples * static_cast<int>(files.size()));
@@ -1054,9 +1162,15 @@ static bool precomputeFullSvgDftSceneV2(const string& resultDir, const string& i
     fullLoop.showArms = true;
 
     double penUpDistance = 0.0;
+    size_t filteredIndex = 0;
     for (size_t i = 0; i < flattened.size(); ++i) {
-        if (counts[i] <= 0) continue;
-        vector<V2DftPoint> sampled = resampleFlattenedLoopV2Dft(flattened[i], counts[i]);
+        if (flattened[i].length < params.minLoopLength) continue;
+        if (filteredIndex >= counts.size() || counts[filteredIndex] <= 0) {
+            ++filteredIndex;
+            continue;
+        }
+        vector<V2DftPoint> sampled = resampleFlattenedLoopV2Dft(flattened[i], counts[filteredIndex++]);
+        sampled = smoothPolylineV2Dft(sampled, params.smoothPasses, isClosedFlattenedLoopV2Dft(flattened[i]));
         if (sampled.empty()) continue;
 
         if (!fullLoop.points.empty()) {
@@ -1106,6 +1220,8 @@ static bool precomputeFullSvgDftSceneV2(const string& resultDir, const string& i
          << ", arms=" << effectiveParams.arms << ", pen-up=" << penUpSamples
          << ", order=" << params.fullSvgOrder << ", coefficient order=" << params.coefficientOrder
          << ", min loop samples=" << params.minLoopSamples
+         << ", min loop length=" << params.minLoopLength
+         << ", smooth passes=" << params.smoothPasses
          << ", pen-up distance=" << fixed << setprecision(1) << penUpDistance
          << ", output=" << outputPath << "\n";
     return ok;
@@ -1144,9 +1260,15 @@ static bool precomputeDftSceneV2(const string& resultDir, const string& image, c
             vector<vector<V2DftPoint>> pathLoops = flattenPathV2Dft(d, transform);
             for (auto& loop : pathLoops) {
                 double length = polylineLengthV2Dft(loop);
-                if (length > 0.0) {
-                    totalLength += length;
-                    flattened.push_back(loop);
+                if (length > 0.0 && length >= params.minLoopLength) {
+                    vector<vector<V2DftPoint>> parts = splitPolylineByLengthV2Dft(loop, params.maxLoopLength);
+                    for (auto& part : parts) {
+                        double partLength = polylineLengthV2Dft(part);
+                        if (partLength > 0.0 && partLength >= params.minLoopLength) {
+                            totalLength += partLength;
+                            flattened.push_back(std::move(part));
+                        }
+                    }
                 }
             }
         }
@@ -1155,10 +1277,12 @@ static bool precomputeDftSceneV2(const string& resultDir, const string& image, c
         size_t filePointCount = 0;
         for (const auto& flattenedLoop : flattened) {
             double length = polylineLengthV2Dft(flattenedLoop);
+            if (length < params.minLoopLength) continue;
             int proportionalSamples = static_cast<int>(round(params.samples * length / std::max(1.0, totalLength)));
             int sampleCount = std::max(params.minLoopSamples, proportionalSamples);
             sampleCount = std::min(params.samples, sampleCount);
             vector<V2DftPoint> sampled = resamplePolylineV2Dft(flattenedLoop, sampleCount);
+            sampled = smoothPolylineV2Dft(sampled, params.smoothPasses, isClosedPolylineV2Dft(flattenedLoop));
             if (sampled.size() < 2) continue;
 
             V2DftLoop loop;
@@ -1226,6 +1350,9 @@ static bool precomputeDftSceneV2(const string& resultDir, const string& image, c
     cout << "  " << channel << " " << mode << ": " << loops.size()
          << " loop(s), samples=" << params.samples << ", arms=" << params.arms
          << ", min loop samples=" << params.minLoopSamples
+         << ", min loop length=" << params.minLoopLength
+         << ", max loop length=" << params.maxLoopLength
+         << ", smooth passes=" << params.smoothPasses
          << ", output=" << outputPath << "\n";
     if (writeCoefficientFiles) {
         cout << "    coefficient output=" << resultDir << "\\FourierCoefficient\n";

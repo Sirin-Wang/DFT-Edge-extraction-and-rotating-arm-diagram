@@ -50,7 +50,7 @@
 
 ```cmd
 ProjectFourier DFT viewer
-Root: C:\Users\27107\source\repos\ProjectFourier
+Root: xxxx
 Node: C:\Program Files\nodejs\node.exe
 
 Starting local viewer server...

@@ -1,4 +1,4 @@
-# ProjectFourier
+# ProjectFourier (DFT-Edge-extraction-and-rotating-arm-diagram)
 
 ProjectFourier 用于从图片中提取线稿组件，把线稿转成 SVG，并生成傅里叶旋臂绘制动画数据。项目包含本地网页工具，可以导入图片、提取线稿、预运算 DFT，并查看 `Sequential`、`Simultaneous`、`Full SVG` 等动画效果。
 

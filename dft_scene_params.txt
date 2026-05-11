@@ -1,0 +1,33 @@
+# DFT scene animation parameters
+# Format: key=value. Lines starting with # are ignored.
+#
+# Modes:
+# - sequential: one active rotating-arm system at a time, so it can use higher quality.
+# - simultaneous: all traces draw together; keep lighter for playback performance.
+#
+# action controls the DftPrecompute.exe behavior:
+# - precompute: only generate results_v2/<image>/dft_data JSON files.
+# - view: skip precompute; useful when only opening the viewer.
+# - both: reserved for scripts that precompute and then open/export a view.
+
+action=precompute
+mode=both
+duration=60
+hold=3
+target_fps=30
+draw_stride=2
+record_seconds=6
+
+sequential.samples=2048
+sequential.arms=320
+sequential.component_time_power=0.70
+sequential.duration=90
+sequential.target_fps=30
+sequential.draw_stride=1
+
+simultaneous.samples=2048
+simultaneous.arms=160
+simultaneous.component_time_power=1.0
+simultaneous.sim_arm_parts=24
+simultaneous.target_fps=24
+simultaneous.draw_stride=3

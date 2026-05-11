@@ -116,3 +116,61 @@ http://127.0.0.1:5174/dft_viewer.html
 
 
 ### 慎用`Componet`+`Simultaneous`，会很卡
+
+## 新增动画导出用法
+
+单`SVG`动画导出现在支持两个额外功能：
+
+- 固定中心旋臂：用 `--fixed-center=true`，旋臂链的起点固定在 `SVG` `viewBox` 中心。
+- 整张线稿直接 `DFT`：用 `--source=full --dft-mode=single`。如果存在 `results_v2/<image>/comp/<channel>_*.svg`，会先按组件编号顺序拼成一个全局有序路径源，再按总长度统一采样成一条曲线；否则退回直接读取 `results_v2/<image>/<channel>.svg`。
+
+示例：
+
+```cmd
+node export_dft_animation.mjs --image=art --channel=XDoG_Guide --source=full --dft-mode=single --fixed-center=true --samples=4096 --arms=512 --duration=12 --hold=3
+```
+
+批处理等价写法：
+
+```cmd
+export_dft_animations.cmd art XDoG_Guide 0 4096 512 12 3 full single true
+```
+
+整场 HTML 导出也支持固定中心：
+
+```cmd
+node export_dft_scene_animation.mjs --image=art --channel=XDoG_Guide --mode=sequential --fixed-center=true
+```
+
+查看器 `dft_viewer.html` 的 `Component` 模式新增了两个开关：
+
+- `Full SVG direct DFT`：优先按 `comp` 编号顺序拼成全局有序路径源，再统一采样成一条曲线 `DFT`。
+- `Samples x components`：只在 `Full SVG direct DFT` 下生效，把 `Samples` 当作每个组件的采样预算，并把总采样数限制到 16384，避免浏览器卡死。
+- `Fixed center`：把旋臂原点固定到画面中心。
+
+`Scene` 模式新增 `Full SVG`，需要先预运算：
+
+```cmd
+x64\Release\DftPrecompute.exe --mode full_svg art3
+```
+
+`full_svg` 预运算会输出：
+
+```cmd
+results_v2\<image>\dft_data\<channel>_full_svg.json
+```
+
+它按 `comp` 编号顺序拼成全局有序路径源，默认总采样数是 `full_svg.samples * component_count`，不做上限裁剪。默认配置在 `dft_scene_params.txt`：
+
+```txt
+full_svg.samples=128
+full_svg.arms=1024
+```
+
+命令行中也可以开启按组件放大采样：
+
+```cmd
+node export_dft_animation.mjs --image=art3 --channel=XDoG_Guide --source=full --dft-mode=single --fixed-center=true --samples=128 --full-samples-per-component=true --max-full-samples=16384 --arms=1024 --duration=12 --hold=3
+```
+
+`componet`模式不要直接用 `4096 * component_count` 这种规模，普通浏览器实时`DFT`基本不可用。

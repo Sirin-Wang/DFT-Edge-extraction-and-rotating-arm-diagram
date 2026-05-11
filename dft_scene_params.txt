@@ -16,18 +16,29 @@ duration=60
 hold=3
 target_fps=30
 draw_stride=2
-record_seconds=6
+record_seconds=25
 
 sequential.samples=2048
 sequential.arms=320
+sequential.min_loop_samples=24
 sequential.component_time_power=0.70
 sequential.duration=90
-sequential.target_fps=30
+sequential.target_fps=60
 sequential.draw_stride=1
 
 simultaneous.samples=2048
 simultaneous.arms=160
+simultaneous.min_loop_samples=16
 simultaneous.component_time_power=1.0
 simultaneous.sim_arm_parts=24
-simultaneous.target_fps=24
+simultaneous.target_fps=60
 simultaneous.draw_stride=3
+
+full_svg.samples=2048
+full_svg.arms=1024
+full_svg.min_loop_samples=12
+full_svg.coefficient_order=frequency
+full_svg.duration=90
+full_svg.target_fps=24
+full_svg.draw_stride=2
+full_svg.order=nearest

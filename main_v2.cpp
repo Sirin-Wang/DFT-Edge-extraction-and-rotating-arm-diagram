@@ -293,9 +293,15 @@ static bool processImageV2(const string& imagePath, const V2Options& options) {
     Mat xdogGuide, xdogSupport;
     if (!xdogMask.empty() && !characterGuides.characterGuide.empty()) {
         bitwise_and(xdogMask, characterGuides.characterGuide, xdogGuide);
+        xdogGuide = removeFilledColorBlocksV2(xdogGuide);
+        xdogGuide = hollowThickColorCoresV2(xdogGuide);
+        xdogGuide = cleanBinaryMaskForContours(xdogGuide);
     }
     if (!xdogMask.empty() && !characterGuides.characterSupport.empty()) {
         bitwise_and(xdogMask, characterGuides.characterSupport, xdogSupport);
+        xdogSupport |= recoverLineLikeSupportV2(lineMask, xdogSupport, characterGuides.characterSupport);
+        xdogSupport = removeFilledColorBlocksV2(xdogSupport);
+        xdogSupport = cleanBinaryMaskForContours(xdogSupport);
     }
 
     if (options.saveIntermediates) {

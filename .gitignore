@@ -1,0 +1,31 @@
+# Build outputs
+x64/
+ProjectFourier/x64/
+DftPrecompute/x64/
+Debug/
+Release/
+*.obj
+*.pdb
+*.ipdb
+*.iobj
+*.ilk
+*.lib
+*.exp
+*.exe
+*.recipe
+*.tlog/
+
+# Generated Fourier/edge extraction outputs
+results_v2/
+dft_scene_params_test.tmp
+
+# Local IDE/user files
+*.user
+.vs/
+
+# Local screenshots and sample renders
+1.png
+
+# OS metadata
+Thumbs.db
+Desktop.ini

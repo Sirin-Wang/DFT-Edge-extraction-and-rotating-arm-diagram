@@ -33,10 +33,11 @@ static vector<string> splitCsvDftMain(const string& text) {
 
 static vector<string> modesFromTextDftMain(const string& text) {
     if (text == "both") return {"sequential", "simultaneous"};
+    if (text == "all") return {"sequential", "simultaneous", "full_svg"};
     vector<string> modes = splitCsvDftMain(text);
     vector<string> filtered;
     for (const string& mode : modes) {
-        if (mode == "sequential" || mode == "simultaneous") filtered.push_back(mode);
+        if (mode == "sequential" || mode == "simultaneous" || mode == "full_svg") filtered.push_back(mode);
     }
     return filtered.empty() ? vector<string>{"sequential", "simultaneous"} : filtered;
 }
@@ -68,7 +69,7 @@ static void printUsageDftMain() {
          << "  --output <dir>       Results root, default results_v2\n"
          << "  --config <file>      TXT config, default dft_scene_params.txt\n"
          << "  --channels <csv>     Default XDoG_Guide,XDoG_Support\n"
-         << "  --mode <value>       sequential, simultaneous, or both\n"
+         << "  --mode <value>       sequential, simultaneous, full_svg, both, or all\n"
          << "  --modes <csv>        Same as --mode, accepts comma-separated values\n";
 }
 

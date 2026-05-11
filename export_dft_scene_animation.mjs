@@ -12,6 +12,19 @@ function argValue(name, fallback) {
   return found ? found.slice(prefix.length) : fallback;
 }
 
+function parseBoolean(name, fallback) {
+  const prefix = `--${name}=`;
+  const exact = `--${name}`;
+  const found = process.argv.find((arg) => arg === exact || arg.startsWith(prefix));
+  if (!found) return fallback;
+  if (found === exact) return true;
+
+  const value = found.slice(prefix.length).trim().toLowerCase();
+  if (["1", "true", "yes", "on", "viewbox", "center"].includes(value)) return true;
+  if (["0", "false", "no", "off", "source"].includes(value)) return false;
+  return fallback;
+}
+
 function parseIntegerValue(value, fallback, min, max) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed)) return fallback;
@@ -112,9 +125,13 @@ ${group}
   }).join("\n");
 }
 
-function makeHtml({ image, channel, mode, viewBox, componentCount, sourceComponents, samples, arms, duration, hold, simArmParts, targetFps, drawStride }) {
+function makeHtml({ image, channel, mode, viewBox, componentCount, sourceComponents, samples, arms, duration, hold, simArmParts, targetFps, drawStride, fixedCenter }) {
   const title = `${image} ${channel} ${mode} DFT scene`;
   const modeLabel = mode === "sequential" ? "Sequential" : "Simultaneous";
+  const center = {
+    x: viewBox.x + viewBox.width * 0.5,
+    y: viewBox.y + viewBox.height * 0.5
+  };
 
   return `<!doctype html>
 <html lang="en">
@@ -202,6 +219,8 @@ ${sourceComponents}
   const DRAW_STRIDE = Math.max(1, ${drawStride});
   const COMPONENT_COUNT = ${componentCount};
   const VIEW_BOX = ${JSON.stringify(viewBox)};
+  const FIXED_CENTER = ${fixedCenter ? "true" : "false"};
+  const CENTER_POINT = ${JSON.stringify(center)};
   const TAU = Math.PI * 2;
 
   const canvas = document.getElementById("stage");
@@ -484,14 +503,16 @@ ${sourceComponents}
   }
 
   function reconstructAt(t, coeffs) {
-    let x = 0;
-    let y = 0;
+    let x = FIXED_CENTER ? CENTER_POINT.x : 0;
+    let y = FIXED_CENTER ? CENTER_POINT.y : 0;
     for (const coef of coeffs) {
       const angle = TAU * coef.freq * t;
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
-      x += coef.re * cos - coef.im * sin;
-      y += coef.re * sin + coef.im * cos;
+      const re = FIXED_CENTER && coef.freq === 0 ? coef.re - CENTER_POINT.x : coef.re;
+      const im = FIXED_CENTER && coef.freq === 0 ? coef.im - CENTER_POINT.y : coef.im;
+      x += re * cos - im * sin;
+      y += re * sin + im * cos;
     }
     return { x, y };
   }
@@ -503,18 +524,20 @@ ${sourceComponents}
   function epicycleAt(t, coeffs) {
     const chain = [];
     const dc = coeffs.find((coef) => coef.freq === 0);
-    let x = dc ? dc.re : 0;
-    let y = dc ? dc.im : 0;
+    let x = FIXED_CENTER ? CENTER_POINT.x : (dc ? dc.re : 0);
+    let y = FIXED_CENTER ? CENTER_POINT.y : (dc ? dc.im : 0);
     chain.push({ x, y, radius: 0 });
 
     for (const coef of coeffs) {
-      if (coef.freq === 0) continue;
+      if (coef.freq === 0 && !FIXED_CENTER) continue;
       const angle = TAU * coef.freq * t;
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
-      const nextX = x + coef.re * cos - coef.im * sin;
-      const nextY = y + coef.re * sin + coef.im * cos;
-      chain.push({ x: nextX, y: nextY, fromX: x, fromY: y, radius: coef.amp });
+      const re = FIXED_CENTER && coef.freq === 0 ? coef.re - CENTER_POINT.x : coef.re;
+      const im = FIXED_CENTER && coef.freq === 0 ? coef.im - CENTER_POINT.y : coef.im;
+      const nextX = x + re * cos - im * sin;
+      const nextY = y + re * sin + im * cos;
+      chain.push({ x: nextX, y: nextY, fromX: x, fromY: y, radius: Math.hypot(re, im) });
       x = nextX;
       y = nextY;
     }
@@ -838,6 +861,7 @@ const config = readConfig(configPath);
 const mode = argValue("mode", configValue(config, "mode", "both"));
 const outputDir = argValue("output-dir", join("results_v2", image, "dft_scene"));
 const compDir = join("results_v2", image, "comp");
+const fixedCenter = parseBoolean("fixed-center", false) || argValue("center", "source").toLowerCase() === "viewbox";
 
 if (!existsSync(compDir)) {
   throw new Error(`Component folder not found: ${compDir}`);
@@ -897,12 +921,13 @@ for (const sceneMode of modes) {
     hold,
     simArmParts,
     targetFps,
-    drawStride
+    drawStride,
+    fixedCenter
   });
-  const output = join(outputDir, `${channel}_all_${sceneMode}.html`);
+  const output = join(outputDir, `${channel}_all_${sceneMode}${fixedCenter ? "_center" : ""}.html`);
   writeFileSync(output, html, "utf8");
   console.log(`Wrote ${output}`);
-  console.log(`  ${sceneMode}: samples=${samples}, arms=${arms}, duration=${duration}s, hold=${hold}s, simultaneous arm parts=${simArmParts}, target fps=${targetFps}, draw stride=${drawStride}`);
+  console.log(`  ${sceneMode}: samples=${samples}, arms=${arms}, duration=${duration}s, hold=${hold}s, simultaneous arm parts=${simArmParts}, target fps=${targetFps}, draw stride=${drawStride}, fixed center=${fixedCenter ? "yes" : "no"}`);
 }
 
 console.log(`Components: ${files.length}`);

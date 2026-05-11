@@ -1,10 +1,23 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 function argValue(name, fallback) {
   const prefix = `--${name}=`;
   const found = process.argv.find((arg) => arg.startsWith(prefix));
   return found ? found.slice(prefix.length) : fallback;
+}
+
+function parseBoolean(name, fallback) {
+  const prefix = `--${name}=`;
+  const exact = `--${name}`;
+  const found = process.argv.find((arg) => arg === exact || arg.startsWith(prefix));
+  if (!found) return fallback;
+  if (found === exact) return true;
+
+  const value = found.slice(prefix.length).trim().toLowerCase();
+  if (["1", "true", "yes", "on", "viewbox", "center"].includes(value)) return true;
+  if (["0", "false", "no", "off", "source"].includes(value)) return false;
+  return fallback;
 }
 
 function parseInteger(name, fallback, min, max) {
@@ -43,21 +56,78 @@ function readViewBox(svgText) {
   };
 }
 
-function extractPotraceGroup(svgText) {
+function extractSvgBody(svgText) {
+  const match = svgText.match(/<svg\b[^>]*>([\s\S]*?)<\/svg>/i);
+  if (!match) return "";
+  return match[1]
+    .replace(/<metadata\b[\s\S]*?<\/metadata>/gi, "")
+    .replace(/<title\b[\s\S]*?<\/title>/gi, "")
+    .trim();
+}
+
+function extractSourceMarkup(svgText) {
   const start = svgText.indexOf("<g ");
   const end = svgText.lastIndexOf("</g>");
-  if (start < 0 || end < start) {
-    throw new Error("Cannot find potrace path group in component SVG");
+  if (start >= 0 && end >= start) {
+    return svgText.slice(start, end + 4);
   }
-  return svgText.slice(start, end + 4);
+
+  const body = extractSvgBody(svgText);
+  if (!body || !/<path\b/i.test(body)) {
+    throw new Error("Cannot find drawable path markup in input SVG");
+  }
+  return body;
+}
+
+function componentIndex(name) {
+  const match = name.match(/_(\d+)\.svg$/i);
+  return match ? Number.parseInt(match[1], 10) : 0;
+}
+
+function componentFilesFor(image, channel) {
+  const compDir = join("results_v2", image, "comp");
+  if (!existsSync(compDir)) return [];
+
+  const prefix = `${channel}_`;
+  return readdirSync(compDir)
+    .filter((name) => name.startsWith(prefix) && name.endsWith(".svg"))
+    .sort((a, b) => componentIndex(a) - componentIndex(b))
+    .map((name) => join(compDir, name));
+}
+
+function buildComponentOrderedMarkup(files) {
+  return files.map((file, index) => {
+    const source = readFileSync(file, "utf8");
+    return `  <g class="ordered-component" data-index="${index}">
+${extractSourceMarkup(source)}
+  </g>`;
+  }).join("\n");
 }
 
 function json(value) {
   return JSON.stringify(value);
 }
 
-function makeAnimatedSvg({ image, channel, component, sourceGroup, viewBox, samples, arms, duration, hold }) {
-  const title = `${image} ${channel}_${padIndex(component)} DFT animation`;
+function makeAnimatedSvg({
+  image,
+  channel,
+  component,
+  sourceLabel,
+  sourceGroup,
+  viewBox,
+  samples,
+  arms,
+  duration,
+  hold,
+  dftMode,
+  fixedCenter,
+  penUpSamples
+}) {
+  const title = `${image} ${sourceLabel} DFT animation`;
+  const center = {
+    x: viewBox.x + viewBox.width * 0.5,
+    y: viewBox.y + viewBox.height * 0.5
+  };
 
   return `<?xml version="1.0" encoding="utf-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
@@ -87,6 +157,10 @@ ${sourceGroup}
   const DURATION_MS = ${duration * 1000};
   const HOLD_MS = ${hold * 1000};
   const CYCLE_MS = DURATION_MS + HOLD_MS;
+  const DFT_MODE = ${json(dftMode)};
+  const FIXED_CENTER = ${fixedCenter ? "true" : "false"};
+  const PEN_UP_SAMPLES = ${penUpSamples};
+  const CENTER_POINT = ${json(center)};
   const TAU = Math.PI * 2;
   const svg = document.documentElement;
   const sourceLayer = document.getElementById("sourceLayer");
@@ -242,21 +316,181 @@ ${sourceGroup}
     }
 
     if (!loops.length || totalLength <= 0) return [];
+    return loops;
+  }
 
-    return loops.map((loop) => {
-      const loopSamples = Math.max(64, Math.round(SAMPLE_COUNT * loop.length / totalLength));
-      const points = [];
-      for (let i = 0; i < loopSamples; ++i) {
-        const distance = loop.length * i / loopSamples;
-        points.push(transformPoint(loop.path.getPointAtLength(distance), loop.matrix));
+  function sampleLoop(loop, count) {
+    const points = [];
+    for (let i = 0; i < count; ++i) {
+      const ratio = i / Math.max(1, count);
+      let distance;
+      if (Number.isFinite(loop.startOffset)) {
+        distance = loop.startOffset + loop.length * (loop.reversed ? -ratio : ratio);
+        distance = ((distance % loop.length) + loop.length) % loop.length;
+      } else {
+        distance = loop.length * (loop.reversed ? 1 - ratio : ratio);
       }
-      return { points, length: loop.length };
+      points.push(transformPoint(loop.path.getPointAtLength(distance), loop.matrix));
+    }
+    return points;
+  }
+
+  function transformedPointAt(loop, distance) {
+    const bounded = Math.max(0, Math.min(loop.length, distance));
+    return transformPoint(loop.path.getPointAtLength(bounded), loop.matrix);
+  }
+
+  function isClosedLoop(loop) {
+    const start = transformedPointAt(loop, 0);
+    const end = transformedPointAt(loop, loop.length);
+    return Math.hypot(start.x - end.x, start.y - end.y) <= Math.max(0.001, loop.length * 0.000001);
+  }
+
+  function loopEnd(loop) {
+    if (Number.isFinite(loop.startOffset)) return transformedPointAt(loop, loop.startOffset);
+    return transformedPointAt(loop, loop.reversed ? 0 : loop.length);
+  }
+
+  function nearestLoopChoice(current, loop) {
+    if (isClosedLoop(loop)) {
+      let best = { distance: Infinity, reversed: false, startOffset: 0 };
+      const candidates = Math.max(16, Math.min(96, Math.ceil(loop.length / 8)));
+      for (let i = 0; i < candidates; ++i) {
+        const offset = loop.length * i / candidates;
+        const point = transformedPointAt(loop, offset);
+        const distance = Math.hypot(current.x - point.x, current.y - point.y);
+        if (distance < best.distance) best = { distance, reversed: false, startOffset: offset };
+      }
+      return best;
+    }
+
+    const start = transformedPointAt(loop, 0);
+    const end = transformedPointAt(loop, loop.length);
+    const startDistance = Math.hypot(current.x - start.x, current.y - start.y);
+    const endDistance = Math.hypot(current.x - end.x, current.y - end.y);
+    return endDistance < startDistance
+      ? { distance: endDistance, reversed: true }
+      : { distance: startDistance, reversed: false };
+  }
+
+  function orderLoopsNearest(loops) {
+    const sourceLoops = loops.filter((loop) => loop.length > 0);
+    if (sourceLoops.length < 2) return sourceLoops;
+
+    const ordered = [];
+    const used = new Set();
+    let cursor = null;
+    while (ordered.length < sourceLoops.length) {
+      let bestIndex = -1;
+      let bestChoice = { distance: Infinity, reversed: false };
+      if (!cursor && ordered.length === 0) {
+        bestIndex = 0;
+      } else {
+        for (let i = 0; i < sourceLoops.length; ++i) {
+          if (used.has(i)) continue;
+          const choice = nearestLoopChoice(cursor, sourceLoops[i]);
+          if (choice.distance < bestChoice.distance) {
+            bestChoice = choice;
+            bestIndex = i;
+          }
+        }
+      }
+      if (bestIndex < 0) break;
+      used.add(bestIndex);
+      const selected = { ...sourceLoops[bestIndex], reversed: bestChoice.reversed, startOffset: bestChoice.startOffset };
+      ordered.push(selected);
+      cursor = loopEnd(selected);
+    }
+    return ordered;
+  }
+
+  function allocateSampleCounts(loops, targetCount) {
+    const sourceLoops = loops.filter((loop) => loop.length > 0);
+    if (!sourceLoops.length) return [];
+
+    const totalLength = sourceLoops.reduce((sum, loop) => sum + loop.length, 0);
+    const minCount = sourceLoops.length <= targetCount ? 1 : 0;
+    const counts = sourceLoops.map((loop) => {
+      const exact = targetCount * loop.length / Math.max(1, totalLength);
+      const base = Math.max(minCount, Math.floor(exact));
+      return { loop, count: base, remainder: exact - Math.floor(exact) };
+    });
+
+    let countSum = counts.reduce((sum, entry) => sum + entry.count, 0);
+    while (countSum > targetCount) {
+      let best = -1;
+      for (let i = 0; i < counts.length; ++i) {
+        if (counts[i].count <= minCount) continue;
+        if (best < 0 || counts[i].remainder < counts[best].remainder) best = i;
+      }
+      if (best < 0) break;
+      counts[best].count -= 1;
+      countSum -= 1;
+    }
+
+    while (countSum < targetCount) {
+      let best = 0;
+      for (let i = 1; i < counts.length; ++i) {
+        if (counts[i].remainder > counts[best].remainder) best = i;
+      }
+      counts[best].count += 1;
+      counts[best].remainder = 0;
+      countSum += 1;
+    }
+
+    return counts;
+  }
+
+  function sampleSeparateLoops(loops) {
+    const totalLength = loops.reduce((sum, loop) => sum + loop.length, 0);
+    return loops.map((loop) => {
+      const loopSamples = Math.max(64, Math.round(SAMPLE_COUNT * loop.length / Math.max(1, totalLength)));
+      return { points: sampleLoop(loop, loopSamples), length: loop.length };
     }).filter((loop) => loop.points.length >= 2);
+  }
+
+  function stitchLoops(loops) {
+    const sourceLoops = orderLoopsNearest(loops);
+    if (!sourceLoops.length) return [];
+
+    const targetCount = Math.max(2, SAMPLE_COUNT);
+    const breakCount = Math.max(0, sourceLoops.length - 1);
+    const maxTransitionTotal = Math.floor(targetCount * 0.25);
+    const transitionCount = breakCount > 0
+      ? Math.max(0, Math.min(PEN_UP_SAMPLES, Math.floor(maxTransitionTotal / breakCount)))
+      : 0;
+    const strokeTargetCount = Math.max(2, targetCount - transitionCount * breakCount);
+    const totalLength = sourceLoops.reduce((sum, loop) => sum + loop.length, 0);
+    const counts = allocateSampleCounts(sourceLoops, strokeTargetCount);
+    const points = [];
+    const breaks = [];
+    for (const { loop, count } of counts) {
+      if (count <= 0) continue;
+      const loopPoints = sampleLoop(loop, count);
+      if (loopPoints.length < 1) continue;
+      if (points.length > 0) {
+        const from = points[points.length - 1];
+        const to = loopPoints[0];
+        for (let i = 1; i <= transitionCount; ++i) {
+          const t = i / (transitionCount + 1);
+          breaks.push(points.length);
+          points.push({
+            x: from.x + (to.x - from.x) * t,
+            y: from.y + (to.y - from.y) * t
+          });
+        }
+        breaks.push(points.length);
+      }
+      points.push(...loopPoints);
+    }
+
+    return points.length >= 2 ? [{ points, length: totalLength, breaks }] : [];
   }
 
   function prepareLoops(loops) {
     let totalLength = 0;
-    const prepared = loops.map((loop) => {
+    const dftLoops = DFT_MODE === "single" ? stitchLoops(loops) : sampleSeparateLoops(loops);
+    const prepared = dftLoops.map((loop) => {
       const coeffs = orderedCoefficients(computeDft(loop.points)).slice(0, Math.min(ARM_COUNT + 1, loop.points.length));
       const trace = loop.points.map((_, index) => reconstructAt(index / loop.points.length, coeffs));
       totalLength += loop.length;
@@ -304,14 +538,16 @@ ${sourceGroup}
   }
 
   function reconstructAt(t, coeffs) {
-    let x = 0;
-    let y = 0;
+    let x = FIXED_CENTER ? CENTER_POINT.x : 0;
+    let y = FIXED_CENTER ? CENTER_POINT.y : 0;
     for (const coef of coeffs) {
       const angle = TAU * coef.freq * t;
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
-      x += coef.re * cos - coef.im * sin;
-      y += coef.re * sin + coef.im * cos;
+      const re = FIXED_CENTER && coef.freq === 0 ? coef.re - CENTER_POINT.x : coef.re;
+      const im = FIXED_CENTER && coef.freq === 0 ? coef.im - CENTER_POINT.y : coef.im;
+      x += re * cos - im * sin;
+      y += re * sin + im * cos;
     }
     return { x, y };
   }
@@ -319,30 +555,38 @@ ${sourceGroup}
   function epicycleAt(t, coeffs) {
     const points = [];
     const dc = coeffs.find((coef) => coef.freq === 0);
-    let x = dc ? dc.re : 0;
-    let y = dc ? dc.im : 0;
+    let x = FIXED_CENTER ? CENTER_POINT.x : (dc ? dc.re : 0);
+    let y = FIXED_CENTER ? CENTER_POINT.y : (dc ? dc.im : 0);
     points.push({ x, y, radius: 0 });
 
     for (const coef of coeffs) {
-      if (coef.freq === 0) continue;
+      if (coef.freq === 0 && !FIXED_CENTER) continue;
       const angle = TAU * coef.freq * t;
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
-      const nextX = x + coef.re * cos - coef.im * sin;
-      const nextY = y + coef.re * sin + coef.im * cos;
-      points.push({ x: nextX, y: nextY, fromX: x, fromY: y, radius: coef.amp });
+      const re = FIXED_CENTER && coef.freq === 0 ? coef.re - CENTER_POINT.x : coef.re;
+      const im = FIXED_CENTER && coef.freq === 0 ? coef.im - CENTER_POINT.y : coef.im;
+      const nextX = x + re * cos - im * sin;
+      const nextY = y + re * sin + im * cos;
+      points.push({ x: nextX, y: nextY, fromX: x, fromY: y, radius: Math.hypot(re, im) });
       x = nextX;
       y = nextY;
     }
     return points;
   }
 
-  function pathData(points, limit, close) {
+  function pathData(points, limit, close, breaks = []) {
     if (points.length < 2) return "";
     const count = Math.max(2, Math.min(points.length, limit ?? points.length));
+    const breakSet = new Set(breaks.filter((index) => index > 0 && index < count));
     let data = "M " + points[0].x.toFixed(2) + " " + points[0].y.toFixed(2);
     for (let i = 1; i < count; ++i) {
-      data += " L " + points[i].x.toFixed(2) + " " + points[i].y.toFixed(2);
+      if (breakSet.has(i)) {
+        if (close) data += " Z";
+        data += " M " + points[i].x.toFixed(2) + " " + points[i].y.toFixed(2);
+      } else {
+        data += " L " + points[i].x.toFixed(2) + " " + points[i].y.toFixed(2);
+      }
     }
     return close && count >= points.length ? data + " Z" : data;
   }
@@ -386,7 +630,7 @@ ${sourceGroup}
 
   const maxArms = Math.max(...loops.map((loop) => loop.coeffs.length - 1));
   const armElements = createArmElements(loops.length, maxArms);
-  rebuildPath.setAttribute("d", loops.map((loop) => pathData(loop.trace, loop.trace.length, true)).join(" "));
+  rebuildPath.setAttribute("d", loops.map((loop) => pathData(loop.trace, loop.trace.length, true, loop.breaks)).join(" "));
 
   let start = null;
   function frame(now) {
@@ -399,12 +643,12 @@ ${sourceGroup}
     for (let loopIndex = 0; loopIndex < loops.length; ++loopIndex) {
       const loop = loops[loopIndex];
       if (t >= loop.end) {
-        drawnPaths.push(pathData(loop.trace, loop.trace.length, true));
+        drawnPaths.push(pathData(loop.trace, loop.trace.length, true, loop.breaks));
         continue;
       }
       if (t >= loop.start && t < loop.end) {
         const localT = (t - loop.start) / Math.max(0.0001, loop.end - loop.start);
-        drawnPaths.push(pathData(loop.trace, Math.floor(localT * loop.trace.length) + 2, false));
+        drawnPaths.push(pathData(loop.trace, Math.floor(localT * loop.trace.length) + 2, false, loop.breaks));
         const chain = epicycleAt(localT, loop.coeffs);
         syncArms(chain, armElements[loopIndex]);
         activeEnd = chain[chain.length - 1];
@@ -434,18 +678,35 @@ ${sourceGroup}
 const image = argValue("image", "art");
 const channel = argValue("channel", "XDoG_Guide");
 const component = parseInteger("component", 0, 0, 9999);
-const samples = parseInteger("samples", 2048, 64, 8192);
-const arms = parseInteger("arms", 256, 1, samples - 1);
+const baseSamples = parseInteger("samples", 2048, 64, 65536);
 const duration = parseNumber("duration", 8, 1, 120);
 const hold = parseNumber("hold", 3, 0, 60);
+const penUpSamples = parseInteger("pen-up-samples", 8, 0, 128);
+const sourceMode = argValue("source", "component").toLowerCase();
+const dftMode = argValue("dft-mode", sourceMode === "full" ? "single" : "loops").toLowerCase();
+const fixedCenter = parseBoolean("fixed-center", false) || argValue("center", "source").toLowerCase() === "viewbox";
+const fullSamplesPerComponent = parseBoolean("full-samples-per-component", false) ||
+  argValue("full-samples", "total").toLowerCase() === "per-component";
+const maxFullSamples = parseInteger("max-full-samples", 16384, 64, 262144);
+
+if (sourceMode !== "component" && sourceMode !== "full") {
+  throw new Error(`Unsupported source: ${sourceMode}. Use component or full.`);
+}
+if (dftMode !== "loops" && dftMode !== "single") {
+  throw new Error(`Unsupported dft-mode: ${dftMode}. Use loops or single.`);
+}
 
 const input = argValue(
   "input",
-  join("results_v2", image, "comp", `${channel}_${padIndex(component)}.svg`)
+  sourceMode === "full"
+    ? join("results_v2", image, `${channel}.svg`)
+    : join("results_v2", image, "comp", `${channel}_${padIndex(component)}.svg`)
 );
 const output = argValue(
   "output",
-  join("results_v2", image, "dft_anim", `${channel}_${padIndex(component)}_dft.svg`)
+  sourceMode === "full"
+    ? join("results_v2", image, "dft_anim", `${channel}_full_${dftMode}${fixedCenter ? "_center" : ""}_dft.svg`)
+    : join("results_v2", image, "dft_anim", `${channel}_${padIndex(component)}${fixedCenter ? "_center" : ""}_dft.svg`)
 );
 
 if (!existsSync(input)) {
@@ -454,12 +715,45 @@ if (!existsSync(input)) {
 
 const source = readFileSync(input, "utf8");
 const viewBox = readViewBox(source);
-const sourceGroup = extractPotraceGroup(source);
-const animatedSvg = makeAnimatedSvg({ image, channel, component, sourceGroup, viewBox, samples, arms, duration, hold });
+const orderedComponentFiles = sourceMode === "full" ? componentFilesFor(image, channel) : [];
+const sampleScale = sourceMode === "full" && fullSamplesPerComponent
+  ? Math.max(1, orderedComponentFiles.length || 1)
+  : 1;
+const samples = sourceMode === "full" && fullSamplesPerComponent
+  ? Math.min(baseSamples * sampleScale, maxFullSamples)
+  : baseSamples;
+const arms = parseInteger("arms", 256, 1, samples - 1);
+const sourceGroup = orderedComponentFiles.length > 0
+  ? buildComponentOrderedMarkup(orderedComponentFiles)
+  : extractSourceMarkup(source);
+const sourceLabel = sourceMode === "full" ? `${channel}_full` : `${channel}_${padIndex(component)}`;
+const animatedSvg = makeAnimatedSvg({
+  image,
+  channel,
+  component,
+  sourceLabel,
+  sourceGroup,
+  viewBox,
+  samples,
+  arms,
+  duration,
+  hold,
+  dftMode,
+  fixedCenter,
+  penUpSamples
+});
 
 mkdirSync(dirname(output), { recursive: true });
 writeFileSync(output, animatedSvg, "utf8");
 
 console.log(`Wrote ${output}`);
 console.log(`Input: ${input}`);
+console.log(`Source: ${sourceMode}, DFT mode: ${dftMode}, fixed center: ${fixedCenter ? "yes" : "no"}`);
+if (sourceMode === "full") {
+  console.log(`Sampling order: ${orderedComponentFiles.length > 0 ? `${orderedComponentFiles.length} component SVGs` : "raw full SVG paths"}`);
+  if (fullSamplesPerComponent) {
+    console.log(`Full samples: ${baseSamples} * ${sampleScale} capped at ${maxFullSamples} -> ${samples}`);
+  }
+  console.log(`Pen-up transition samples per break: ${penUpSamples}`);
+}
 console.log(`Samples: ${samples}, arms: ${arms}, duration: ${duration}s, hold: ${hold}s`);

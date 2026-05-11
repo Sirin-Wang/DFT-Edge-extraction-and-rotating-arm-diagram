@@ -14,7 +14,8 @@ static Mat outlineFilledRegionComponents(const Mat& binary,
     Mat result = source.clone();
     Mat filledRegions = Mat::zeros(source.size(), CV_8UC1);
     Mat regionOutlines = Mat::zeros(source.size(), CV_8UC1);
-    int minArea = max(72, static_cast<int>(source.total() / 6200));
+    int minArea = max(36, static_cast<int>(source.total() / 26000));
+    Mat coreKernel = getStructuringElement(MORPH_ELLIPSE, Size(3, 3));
     Mat erodeKernel = getStructuringElement(MORPH_ELLIPSE, Size(5, 5));
 
     for (int label = 1; label < count; ++label) {
@@ -26,18 +27,33 @@ static Mat outlineFilledRegionComponents(const Mat& binary,
         double fillRatio = area / static_cast<double>(max(1, width * height));
         double slenderness = longSide / static_cast<double>(shortSide);
 
-        bool compactBlock = area >= minArea
-                          && shortSide >= 8
-                          && fillRatio >= 0.42
-                          && slenderness <= 8.0;
-        bool largeFlatBlock = area >= minArea * 3
-                           && shortSide >= 12
-                           && fillRatio >= 0.30
-                           && slenderness <= 13.0;
-        if (!compactBlock && !largeFlatBlock) continue;
-
         Mat componentMask;
         compare(labels, label, componentMask, CMP_EQ);
+
+        Mat core;
+        erode(componentMask, core, coreKernel, Point(-1, -1), 1, BORDER_CONSTANT, Scalar(0));
+        double coreRatio = countNonZero(core) / static_cast<double>(max(1, area));
+
+        bool lineLike = shortSide <= 4
+                     || fillRatio <= 0.16
+                     || coreRatio <= 0.035
+                     || slenderness >= 18.0;
+        bool compactBlock = area >= minArea
+                          && shortSide >= 7
+                          && fillRatio >= 0.36
+                          && coreRatio >= 0.060
+                          && slenderness <= 10.0;
+        bool largeFlatBlock = area >= minArea * 2
+                           && shortSide >= 10
+                           && fillRatio >= 0.22
+                           && coreRatio >= 0.100
+                           && slenderness <= 16.0;
+        bool thickPatch = area >= minArea
+                       && shortSide >= 10
+                       && fillRatio >= 0.18
+                       && coreRatio >= 0.180
+                       && slenderness <= 22.0;
+        if (lineLike || (!compactBlock && !largeFlatBlock && !thickPatch)) continue;
 
         Mat eroded;
         erode(componentMask, eroded, erodeKernel, Point(-1, -1), 1, BORDER_CONSTANT, Scalar(0));
@@ -292,6 +308,151 @@ static Mat keepTopComponentsPerTileV2(const Mat& lines, const Mat& strengthMask,
         ++tileUse[candidate.tileIndex];
     }
 
+    return kept;
+}
+
+static Mat removeFilledColorBlocksV2(const Mat& binary, Mat* outFilledRegions = nullptr,
+                                     Mat* outRegionOutlines = nullptr) {
+    if (binary.empty()) return Mat();
+
+    Mat cleaned = outlineFilledRegionComponents(binary, outFilledRegions, outRegionOutlines);
+    cleaned = removeSmallComponents(cleaned, max(3, static_cast<int>(cleaned.total() / 140000)));
+    return cleaned;
+}
+
+static Mat hollowThickColorCoresV2(const Mat& binary, Mat* outFilledCores = nullptr,
+                                   Mat* outCoreOutlines = nullptr) {
+    if (binary.empty()) return Mat();
+
+    Mat source;
+    threshold(binary, source, 0, 255, THRESH_BINARY);
+
+    Mat thickCore;
+    erode(source, thickCore, getStructuringElement(MORPH_ELLIPSE, Size(5, 5)),
+          Point(-1, -1), 1, BORDER_CONSTANT, Scalar(0));
+    morphologyEx(thickCore, thickCore, MORPH_OPEN, getStructuringElement(MORPH_ELLIPSE, Size(3, 3)));
+    thickCore = removeSmallComponents(thickCore, max(18, static_cast<int>(source.total() / 52000)));
+    if (countNonZero(thickCore) == 0) {
+        if (outFilledCores) *outFilledCores = Mat::zeros(source.size(), CV_8UC1);
+        if (outCoreOutlines) *outCoreOutlines = Mat::zeros(source.size(), CV_8UC1);
+        return source;
+    }
+
+    Mat blockArea;
+    dilate(thickCore, blockArea, getStructuringElement(MORPH_ELLIPSE, Size(5, 5)));
+    blockArea &= source;
+
+    Mat labels, stats, centroids;
+    int count = connectedComponentsWithStats(blockArea, labels, stats, centroids, 8, CV_32S);
+    Mat filledCores = Mat::zeros(source.size(), CV_8UC1);
+    Mat coreOutlines = Mat::zeros(source.size(), CV_8UC1);
+    Mat result = source.clone();
+    int minArea = max(24, static_cast<int>(source.total() / 70000));
+
+    for (int label = 1; label < count; ++label) {
+        int area = stats.at<int>(label, CC_STAT_AREA);
+        int width = stats.at<int>(label, CC_STAT_WIDTH);
+        int height = stats.at<int>(label, CC_STAT_HEIGHT);
+        int shortSide = max(1, min(width, height));
+        int longSide = max(width, height);
+        if (area < minArea || shortSide < 6) continue;
+
+        Mat componentMask;
+        compare(labels, label, componentMask, CMP_EQ);
+
+        Mat coreOverlap;
+        bitwise_and(componentMask, thickCore, coreOverlap);
+        int coreHits = countNonZero(coreOverlap);
+        double coreRatio = coreHits / static_cast<double>(max(1, area));
+        double fillRatio = area / static_cast<double>(max(1, width * height));
+        double slenderness = longSide / static_cast<double>(shortSide);
+        bool thickBlock = coreHits >= max(8, area / 12)
+                       && coreRatio >= 0.080
+                       && fillRatio >= 0.16
+                       && slenderness <= 18.0;
+        if (!thickBlock) continue;
+
+        Mat eroded;
+        erode(componentMask, eroded, getStructuringElement(MORPH_ELLIPSE, Size(5, 5)),
+              Point(-1, -1), 1, BORDER_CONSTANT, Scalar(0));
+        Mat boundary;
+        bitwise_and(componentMask, ~eroded, boundary);
+
+        result.setTo(0, eroded);
+        filledCores |= eroded;
+        coreOutlines |= boundary;
+    }
+
+    result |= coreOutlines;
+    result = removeSmallComponents(result, max(3, static_cast<int>(result.total() / 140000)));
+    if (outFilledCores) *outFilledCores = filledCores;
+    if (outCoreOutlines) *outCoreOutlines = coreOutlines;
+    return result;
+}
+
+static Mat recoverLineLikeSupportV2(const Mat& lineMask, const Mat& baseSupport,
+                                    const Mat& allowedMask) {
+    if (lineMask.empty()) return Mat();
+
+    Mat candidates;
+    threshold(lineMask, candidates, 0, 255, THRESH_BINARY);
+    if (!allowedMask.empty() && allowedMask.size() == candidates.size()) {
+        candidates &= allowedMask;
+    }
+    if (countNonZero(candidates) == 0) return candidates;
+
+    Mat nearBase = Mat::zeros(candidates.size(), CV_8UC1);
+    if (!baseSupport.empty() && baseSupport.size() == candidates.size() && countNonZero(baseSupport) > 0) {
+        dilate(baseSupport, nearBase, getStructuringElement(MORPH_ELLIPSE, Size(9, 9)));
+    }
+
+    Mat labels, stats, centroids;
+    int count = connectedComponentsWithStats(candidates, labels, stats, centroids, 8, CV_32S);
+    Mat kept = Mat::zeros(candidates.size(), CV_8UC1);
+    int minArea = max(3, static_cast<int>(candidates.total() / 180000));
+    int maxArea = max(96, static_cast<int>(candidates.total() / 28));
+    Mat coreKernel = getStructuringElement(MORPH_ELLIPSE, Size(3, 3));
+
+    for (int label = 1; label < count; ++label) {
+        int area = stats.at<int>(label, CC_STAT_AREA);
+        if (area < minArea || area > maxArea) continue;
+
+        int width = stats.at<int>(label, CC_STAT_WIDTH);
+        int height = stats.at<int>(label, CC_STAT_HEIGHT);
+        int longSide = max(width, height);
+        int shortSide = max(1, min(width, height));
+        double fillRatio = area / static_cast<double>(max(1, width * height));
+        double slenderness = longSide / static_cast<double>(shortSide);
+
+        Mat componentMask;
+        compare(labels, label, componentMask, CMP_EQ);
+
+        Mat core;
+        erode(componentMask, core, coreKernel, Point(-1, -1), 1, BORDER_CONSTANT, Scalar(0));
+        double coreRatio = countNonZero(core) / static_cast<double>(max(1, area));
+
+        Mat overlap;
+        bitwise_and(componentMask, nearBase, overlap);
+        int nearHits = countNonZero(overlap);
+
+        double cy = centroids.at<double>(label, 1);
+        bool lowerBody = cy >= candidates.rows * 0.45;
+        bool lineLike = shortSide <= 7
+                     || slenderness >= 2.20
+                     || (fillRatio <= 0.24 && coreRatio <= 0.10);
+        bool thickPatch = shortSide >= 12
+                       && fillRatio >= 0.24
+                       && coreRatio >= 0.10
+                       && slenderness < 12.0;
+        bool supported = nearHits >= 2
+                      || (lowerBody && longSide >= 18 && slenderness >= 1.75 && fillRatio <= 0.38);
+
+        if (lineLike && supported && !thickPatch) {
+            kept.setTo(255, componentMask);
+        }
+    }
+
+    kept = removeSmallComponents(kept, minArea);
     return kept;
 }
 
@@ -589,6 +750,10 @@ static Mat buildLineMaskV2(const Mat& src, const Mat& detailGuide = Mat(),
     Mat xdogDenseMask = buildLocalDensityMask(xdogRaw, fullSupport);
     Mat xdogMask = filterLineComponentsV2(xdogRaw, xdogStrongSupport, xdogDenseMask);
     xdogMask = removeSmallComponents(xdogMask, max(2, static_cast<int>(xdogMask.total() / 90000)));
+    Mat xdogFilledRegions, xdogRegionOutlines;
+    xdogMask = removeFilledColorBlocksV2(xdogMask, &xdogFilledRegions, &xdogRegionOutlines);
+    Mat xdogFilledCores, xdogCoreOutlines;
+    xdogMask = hollowThickColorCoresV2(xdogMask, &xdogFilledCores, &xdogCoreOutlines);
 
     Mat xdogNear;
     dilate(xdogMask, xdogNear, getStructuringElement(MORPH_ELLIPSE, Size(5, 5)));
@@ -651,8 +816,8 @@ static Mat buildLineMaskV2(const Mat& src, const Mat& detailGuide = Mat(),
     if (outXdog) *outXdog = xdogMask;
     if (outStrongSupport) *outStrongSupport = supportAnchor;
     if (outFineDetail) *outFineDetail = fineDetail;
-    if (outFilledRegions) *outFilledRegions = preFilledRegions | postFilledRegions;
-    if (outRegionOutlines) *outRegionOutlines = preRegionOutlines | postRegionOutlines;
+    if (outFilledRegions) *outFilledRegions = preFilledRegions | postFilledRegions | xdogFilledRegions | xdogFilledCores;
+    if (outRegionOutlines) *outRegionOutlines = preRegionOutlines | postRegionOutlines | xdogRegionOutlines | xdogCoreOutlines;
     if (outStructuralSupport) *outStructuralSupport = structuralSupport;
     return lineMask;
 }

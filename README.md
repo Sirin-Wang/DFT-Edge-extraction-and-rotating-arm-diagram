@@ -78,8 +78,8 @@ x64\Release\ProjectFourier.exe --no-gui --no-clear --intermediate art1.png
 | 示例 | 说明 | 结果文件 |
 | --- | --- | --- |
 | ![art component 示例](results_v2/art/comp/XDoG_Guide_0000.svg) | 单个连通组件会被单独导出，后续可以逐个做 DFT。 | `results_v2/art/comp/XDoG_Guide_0000.svg` |
-| ![art component 示例](results_v2/art/comp/XDoG_Guide_0007.svg) | 同一张图会拆分出多个 component，适合检查拆分和预运算输入。 | `results_v2/art/comp/XDoG_Guide_0007.svg` |
-| ![art1 component 示例](results_v2/art1/comp/XDoG_Guide_0000.svg) | `art1` 的 component 示例，用于展示不同输入图也会按连通组件拆分成独立 SVG。 | `results_v2/art1/comp/XDoG_Guide_0000.svg` |
+| ![art component 示例](results_v2/art/comp/XDoG_Guide_0043.svg) | 同一张图会拆分出多个 component，适合检查拆分和预运算输入。 | `results_v2/art/comp/XDoG_Guide_0007.svg` |
+| ![art1 component 示例](results_v2/art1/comp/XDoG_Guide_0000.svg) | `art1` 的 component 示例，DFT时会进一步拆分。 | `results_v2/art1/comp/XDoG_Guide_0000.svg` |
 | `Sequential` / `Simultaneous` / `Full SVG` | 预运算后的动画数据由网页 `Scene` 模式读取。 | `results_v2/art/dft_data/*.json` |
 
 <p align="center">

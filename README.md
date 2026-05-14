@@ -1,4 +1,4 @@
-# ProjectFourier (DFT-Edge-extraction-and-rotating-arm-diagram)
+# ProjectFourier
 
 ProjectFourier 用于从图片中提取线稿组件，把线稿转成 SVG，并生成傅里叶旋臂绘制动画数据。项目包含本地网页工具，可以导入图片、提取线稿、预运算 DFT，并查看 `Sequential`、`Simultaneous`、`Full SVG` 等动画效果。
 
@@ -48,15 +48,38 @@ results_v2/<image_name>/
 | 原图 | Guide 线稿 | Support 线稿 |
 | --- | --- | --- |
 | ![art 原图](art.png) | ![art Guide 线稿](results_v2/art/XDoG_Guide.svg) | ![art Support 线稿](results_v2/art/XDoG_Support.svg) |
-| ![art3 原图](art3.jpg) | ![art3 Guide 线稿](results_v2/art3/XDoG_Guide.svg) | ![art3 Support 线稿](results_v2/art3/XDoG_Support.svg) |
+| ![art1 原图](art1.png) | ![art1 Guide 线稿](results_v2/art1/XDoG_Guide.svg) | ![art1 Support 线稿](results_v2/art1/XDoG_Support.svg) |
 | ![art2 原图](art2.png) | ![art2 Guide 线稿](results_v2/art2/XDoG_Guide.svg) | ![art2 Support 线稿](results_v2/art2/XDoG_Support.svg) |
+| ![art3 原图](art3.jpg) | ![art3 Guide 线稿](results_v2/art3/XDoG_Guide.svg) | ![art3 Support 线稿](results_v2/art3/XDoG_Support.svg) |
+
+### 中间处理结果示例
+
+下面以 `art1` 为例展示部分 `--intermediate` 输出。完整中间图可以用下面的命令重新生成：
+
+```cmd
+x64\Release\ProjectFourier.exe --no-gui --no-clear --intermediate art1.png
+```
+
+| 中间结果 | 说明 |
+| --- | --- |
+| ![art1 intermediate contact sheet](results_v2/art1/art_intermediate_case.png) | 全流程中间图拼接预览，适合快速定位是哪一步引入或过滤了线条。 |
+
+| 阶段 | 图片 | 作用 |
+| --- | --- | --- |
+| 主体 mask | ![art1 subject mask](results_v2/art1/intermediate/02_subject_mask.png) | 估计前景主体范围，后续 guide 和 support 都以它为主要约束。 |
+| 角色 guide | ![art1 character guide](results_v2/art1/intermediate/03_character_guide.png) | 聚焦主体关键结构区域，减少背景线条进入 `XDoG_Guide`。 |
+| XDoG 候选 | ![art1 xdog candidate](results_v2/art1/intermediate/04_xdog_candidate.png) | 原始 XDoG 边缘候选，保留较多局部线条。 |
+| 清理后线稿 | ![art1 line mask clean](results_v2/art1/intermediate/10_line_mask_clean.png) | 经过组件过滤、色块处理和噪声抑制后的主线稿候选。 |
+| Guide 最终图 | ![art1 guide final](results_v2/art1/intermediate/13_xdog_guide_final.png) | 输出到 `XDoG_Guide.svg` 前的二值 mask。 |
+| Support 最终图 | ![art1 support final](results_v2/art1/intermediate/14_xdog_support_final.png) | 输出到 `XDoG_Support.svg` 前的二值 mask。 |
 
 ### Component 与 DFT 结果
 
 | 示例 | 说明 | 结果文件 |
 | --- | --- | --- |
 | ![art component 示例](results_v2/art/comp/XDoG_Guide_0000.svg) | 单个连通组件会被单独导出，后续可以逐个做 DFT。 | `results_v2/art/comp/XDoG_Guide_0000.svg` |
-| ![art component 示例](results_v2/art/comp/XDoG_Guide_0043.svg) | 同一张图会拆分出多个 component，适合检查拆分和预运算输入。 | `results_v2/art/comp/XDoG_Guide_0007.svg` |
+| ![art component 示例](results_v2/art/comp/XDoG_Guide_0007.svg) | 同一张图会拆分出多个 component，适合检查拆分和预运算输入。 | `results_v2/art/comp/XDoG_Guide_0007.svg` |
+| ![art1 component 示例](results_v2/art1/comp/XDoG_Guide_0000.svg) | `art1` 的 component 示例，用于展示不同输入图也会按连通组件拆分成独立 SVG。 | `results_v2/art1/comp/XDoG_Guide_0000.svg` |
 | `Sequential` / `Simultaneous` / `Full SVG` | 预运算后的动画数据由网页 `Scene` 模式读取。 | `results_v2/art/dft_data/*.json` |
 
 <p align="center">
@@ -317,7 +340,7 @@ http://127.0.0.1:5174/dft_viewer.html
 - `ProjectFourier.exe`
 - `DftPrecompute.exe`
 - `opencv_world4120.dll`
-- 常见 `MSVC` 运行库 `DLL`
+- 常见 MSVC 运行库 DLL
 - `potrace.exe`
 - 网页 viewer 和示例结果
 - 包内中文说明 `README.md`
@@ -326,7 +349,7 @@ http://127.0.0.1:5174/dft_viewer.html
 
 ### 从源码配置
 
-`Windows` 下先双击：
+Windows 下先双击：
 
 ```cmd
 setup_environment.cmd

@@ -161,9 +161,23 @@ static Mat buildLowerBodySoftSupportV2(const Mat& bgr, const Mat& lowerBodyGuide
         Mat anchorOverlap;
         bitwise_and(componentMask, nearAnchor, anchorOverlap);
         int anchorHits = countNonZero(anchorOverlap);
+        double anchorRatio = anchorHits / static_cast<double>(max(1, area));
 
         bool lineLike = shortSide <= 5 || slenderness >= 1.35 || fillRatio <= 0.46;
-        bool supported = anchorHits >= 2 || longSide >= 8 || (area >= 10 && fillRatio <= 0.36);
+        bool anchoredLine = anchorHits >= 4 && (anchorRatio >= 0.10 || longSide <= 36);
+        bool patternLike = area >= 10
+                        && longSide >= 8
+                        && longSide <= 120
+                        && slenderness <= 3.40
+                        && fillRatio <= 0.52;
+        bool lowFillPattern = area >= 14
+                           && longSide <= 92
+                           && slenderness <= 3.80
+                           && fillRatio <= 0.30;
+        bool isolatedLongLine = longSide >= 70
+                             && slenderness >= 3.80
+                             && anchorRatio < 0.18;
+        bool supported = (anchoredLine || patternLike || lowFillPattern) && !isolatedLongLine;
         bool compactPatch = fillRatio > 0.68 && slenderness < 1.65 && longSide < 24;
         if (lineLike && supported && !compactPatch) {
             kept.setTo(255, componentMask);
@@ -450,9 +464,12 @@ static bool processImageV2(const string& imagePath, const V2Options& options) {
         lowerBodySoftSupport = buildLowerBodySoftSupportV2(toBgrImage(workSrc),
                                                            characterGuides.lowerBodyGuide,
                                                            characterGuides.subjectMask,
-                                                           xdogSupport | lineMask);
+                                                           xdogSupport);
         if (!lowerBodySoftSupport.empty()) {
             xdogSupport |= lowerBodySoftSupport;
+        }
+        if (!xdogGuide.empty() && xdogGuide.size() == xdogSupport.size()) {
+            xdogSupport = limitSupportExtraComponentsV2(xdogSupport, xdogGuide);
         }
         xdogSupport = removeFilledColorBlocksV2(xdogSupport);
         xdogSupport = hollowThickColorCoresV2(xdogSupport);

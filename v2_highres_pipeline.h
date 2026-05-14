@@ -311,6 +311,161 @@ static Mat keepTopComponentsPerTileV2(const Mat& lines, const Mat& strengthMask,
     return kept;
 }
 
+static Mat limitSupportExtraComponentsV2(const Mat& supportMask, const Mat& guideMask) {
+    if (supportMask.empty()) return Mat();
+    if (guideMask.empty() || guideMask.size() != supportMask.size()) return supportMask.clone();
+
+    Mat support, guide;
+    threshold(supportMask, support, 0, 255, THRESH_BINARY);
+    threshold(guideMask, guide, 0, 255, THRESH_BINARY);
+
+    Mat notGuide;
+    bitwise_not(guide, notGuide);
+    Mat extra = support & notGuide;
+    if (countNonZero(extra) == 0) return support;
+
+    Mat nearGuide;
+    dilate(guide, nearGuide, getStructuringElement(MORPH_ELLIPSE, Size(7, 7)));
+
+    Mat closedGuide;
+    morphologyEx(guide, closedGuide, MORPH_CLOSE, getStructuringElement(MORPH_ELLIPSE, Size(5, 5)));
+    Mat flood = closedGuide.clone();
+    copyMakeBorder(flood, flood, 1, 1, 1, 1, BORDER_CONSTANT, Scalar(0));
+    floodFill(flood, Point(0, 0), Scalar(255));
+    Mat floodInv;
+    bitwise_not(flood, floodInv);
+    Mat guideInterior = floodInv(Rect(1, 1, guide.cols, guide.rows));
+    guideInterior.setTo(0, closedGuide);
+    guideInterior = removeSmallComponents(guideInterior, max(24, static_cast<int>(guideInterior.total() / 90000)));
+    {
+        Mat labelsInterior, statsInterior, centroidsInterior;
+        int interiorCount = connectedComponentsWithStats(guideInterior, labelsInterior,
+                                                         statsInterior, centroidsInterior, 8, CV_32S);
+        Mat smallInterior = Mat::zeros(guideInterior.size(), CV_8UC1);
+        int minInteriorArea = max(24, static_cast<int>(guideInterior.total() / 120000));
+        int maxInteriorArea = max(220, static_cast<int>(guideInterior.total() / 900));
+        for (int interiorLabel = 1; interiorLabel < interiorCount; ++interiorLabel) {
+            int interiorArea = statsInterior.at<int>(interiorLabel, CC_STAT_AREA);
+            if (interiorArea < minInteriorArea || interiorArea > maxInteriorArea) continue;
+
+            Mat interiorMask;
+            compare(labelsInterior, interiorLabel, interiorMask, CMP_EQ);
+            smallInterior.setTo(255, interiorMask);
+        }
+        guideInterior = smallInterior;
+    }
+
+    Mat labels, stats, centroids;
+    int count = connectedComponentsWithStats(extra, labels, stats, centroids, 8, CV_32S);
+    Mat keptExtra = Mat::zeros(extra.size(), CV_8UC1);
+
+    Mat densityMap = buildLocalDensityMap(extra, Mat());
+    Mat highDensity;
+    threshold(densityMap, highDensity, 0.040, 255.0, THRESH_BINARY);
+    highDensity.convertTo(highDensity, CV_8U);
+    morphologyEx(highDensity, highDensity, MORPH_CLOSE, getStructuringElement(MORPH_ELLIPSE, Size(7, 7)));
+
+    int tileSize = max(34, min(extra.rows, extra.cols) / 16);
+    int tilesX = max(1, (extra.cols + tileSize - 1) / tileSize);
+    int tilesY = max(1, (extra.rows + tileSize - 1) / tileSize);
+    vector<int> tileUse(tilesX * tilesY, 0);
+
+    struct SupportExtraCandidate {
+        int label = 0;
+        int tileIndex = 0;
+        double score = 0.0;
+        bool crowdedSmall = false;
+    };
+    vector<SupportExtraCandidate> candidates;
+    candidates.reserve(max(0, count - 1));
+
+    int tinyArea = max(8, static_cast<int>(extra.total() / 220000));
+    int patternArea = max(18, static_cast<int>(extra.total() / 110000));
+
+    for (int label = 1; label < count; ++label) {
+        int area = stats.at<int>(label, CC_STAT_AREA);
+        int width = stats.at<int>(label, CC_STAT_WIDTH);
+        int height = stats.at<int>(label, CC_STAT_HEIGHT);
+        int longSide = max(width, height);
+        int shortSide = max(1, min(width, height));
+        double fillRatio = area / static_cast<double>(max(1, width * height));
+        double slenderness = longSide / static_cast<double>(shortSide);
+
+        Mat componentMask;
+        compare(labels, label, componentMask, CMP_EQ);
+
+        Mat nearOverlap;
+        bitwise_and(componentMask, nearGuide, nearOverlap);
+        int nearHits = countNonZero(nearOverlap);
+        double nearRatio = nearHits / static_cast<double>(max(1, area));
+
+        Mat denseOverlap;
+        bitwise_and(componentMask, highDensity, denseOverlap);
+        double denseRatio = countNonZero(denseOverlap) / static_cast<double>(max(1, area));
+
+        Mat interiorOverlap;
+        bitwise_and(componentMask, guideInterior, interiorOverlap);
+        double interiorRatio = countNonZero(interiorOverlap) / static_cast<double>(max(1, area));
+
+        bool tinyLoose = area <= tinyArea && longSide <= 16 && nearRatio < 0.24;
+        bool patternLike = area >= patternArea
+                        && longSide >= 10
+                        && longSide <= 130
+                        && slenderness <= 4.0
+                        && fillRatio <= 0.58;
+        bool strongPattern = area >= patternArea * 2
+                          && longSide >= 24
+                          && longSide <= 120
+                          && slenderness <= 3.20
+                          && fillRatio <= 0.42;
+        bool usefulLine = longSide >= 18
+                       && (shortSide <= 5 || slenderness >= 1.8)
+                       && (nearHits >= 3 || area >= patternArea);
+        bool isolatedLong = longSide >= 90 && nearRatio < 0.12 && slenderness >= 3.2;
+        bool denseExtra = denseRatio >= 0.42;
+
+        if (tinyLoose
+            || isolatedLong
+            || interiorRatio >= 0.55
+            || (!patternLike && !usefulLine && nearRatio < 0.35)) {
+            continue;
+        }
+
+        bool crowdedSmall = denseExtra && area < patternArea * 4 && longSide < 68;
+
+        double score = area * 0.55 + longSide * 2.6 + slenderness * 5.0 + nearRatio * 46.0;
+        if (patternLike) score += 38.0;
+        if (crowdedSmall) score -= 68.0;
+        if (tinyLoose) score -= 60.0;
+
+        int cx = static_cast<int>(centroids.at<double>(label, 0));
+        int cy = static_cast<int>(centroids.at<double>(label, 1));
+        int tileX = min(tilesX - 1, max(0, cx / tileSize));
+        int tileY = min(tilesY - 1, max(0, cy / tileSize));
+        candidates.push_back({ label, tileY * tilesX + tileX, score, crowdedSmall });
+    }
+
+    sort(candidates.begin(), candidates.end(), [](const SupportExtraCandidate& a,
+                                                  const SupportExtraCandidate& b) {
+        return a.score > b.score;
+    });
+
+    for (const auto& candidate : candidates) {
+        if (candidate.score < (candidate.crowdedSmall ? 62.0 : 32.0)) continue;
+        int maxPerTile = candidate.crowdedSmall ? 1 : 3;
+        if (tileUse[candidate.tileIndex] >= maxPerTile) continue;
+
+        Mat componentMask;
+        compare(labels, candidate.label, componentMask, CMP_EQ);
+        keptExtra.setTo(255, componentMask);
+        ++tileUse[candidate.tileIndex];
+    }
+
+    Mat result = guide | keptExtra;
+    result &= support;
+    return result;
+}
+
 static Mat removeFilledColorBlocksV2(const Mat& binary, Mat* outFilledRegions = nullptr,
                                      Mat* outRegionOutlines = nullptr) {
     if (binary.empty()) return Mat();
@@ -403,13 +558,13 @@ static Mat recoverLineLikeSupportV2(const Mat& lineMask, const Mat& baseSupport,
 
     Mat nearBase = Mat::zeros(candidates.size(), CV_8UC1);
     if (!baseSupport.empty() && baseSupport.size() == candidates.size() && countNonZero(baseSupport) > 0) {
-        dilate(baseSupport, nearBase, getStructuringElement(MORPH_ELLIPSE, Size(9, 9)));
+        dilate(baseSupport, nearBase, getStructuringElement(MORPH_ELLIPSE, Size(7, 7)));
     }
 
     Mat labels, stats, centroids;
     int count = connectedComponentsWithStats(candidates, labels, stats, centroids, 8, CV_32S);
     Mat kept = Mat::zeros(candidates.size(), CV_8UC1);
-    int minArea = max(3, static_cast<int>(candidates.total() / 180000));
+    int minArea = max(3, static_cast<int>(candidates.total() / 150000));
     int maxArea = max(96, static_cast<int>(candidates.total() / 28));
     Mat coreKernel = getStructuringElement(MORPH_ELLIPSE, Size(3, 3));
 
@@ -437,15 +592,15 @@ static Mat recoverLineLikeSupportV2(const Mat& lineMask, const Mat& baseSupport,
 
         double cy = centroids.at<double>(label, 1);
         bool lowerBody = cy >= candidates.rows * 0.45;
-        bool lineLike = shortSide <= 7
-                     || slenderness >= 2.20
-                     || (fillRatio <= 0.24 && coreRatio <= 0.10);
-        bool thickPatch = shortSide >= 12
-                       && fillRatio >= 0.24
-                       && coreRatio >= 0.10
+        bool lineLike = shortSide <= 6
+                     || slenderness >= 2.35
+                     || (fillRatio <= 0.22 && coreRatio <= 0.08);
+        bool thickPatch = shortSide >= 10
+                       && fillRatio >= 0.22
+                       && coreRatio >= 0.08
                        && slenderness < 12.0;
-        bool supported = nearHits >= 2
-                      || (lowerBody && longSide >= 18 && slenderness >= 1.75 && fillRatio <= 0.38);
+        bool supported = nearHits >= 4
+                      || (lowerBody && longSide >= 20 && slenderness >= 1.90 && fillRatio <= 0.34);
 
         if (lineLike && supported && !thickPatch) {
             kept.setTo(255, componentMask);
@@ -658,7 +813,10 @@ static Mat filterLineComponentsV2(const Mat& lines, const Mat& strongSupport,
 
         bool lineLike = shortSide <= 4 || slenderness >= 1.45 || fillRatio <= 0.62;
         bool strongLine = supportRatio >= (inDense ? 0.24 : 0.16) || supportHits >= (inDense ? 5 : 3);
-        bool longLine = longSide >= (inDense ? 24 : 14) && area >= (inDense ? 7 : 4);
+        bool longLine = longSide >= (inDense ? 24 : 14)
+                     && area >= (inDense ? 7 : 4)
+                     && lineLike
+                     && (strongLine || supportHits >= (inDense ? 3 : 2) || supportRatio >= 0.08);
         bool compactNoise = fillRatio > 0.70
                           && slenderness < 1.75
                           && longSide < (inDense ? 42 : 28);

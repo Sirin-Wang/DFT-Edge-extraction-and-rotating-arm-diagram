@@ -100,9 +100,9 @@ $env:PATH="$env:OPENCV_DIR\x64\vc16\bin;$env:PATH"
 
 ## 预编译包
 
-本地 release 包生成在 `dist\Fourier-api-approach-prebuilt.zip`。压缩包会包含 `Fourier-api-approach.exe`、`opencv_world4120.dll` 和 `potrace.exe`，解压后不需要额外安装 potrace。还会包含 `api_line_config.example.ini`、`dft_scene_params.txt`、网页查看器和启动脚本。
+本地 release 包生成在 `dist\Fourier-api-approach-win-x64.zip`。压缩包会包含 `Fourier-api-approach.exe`、`opencv_world4120.dll` 和 `potrace.exe`，解压后不需要额外安装 potrace。还会包含 `api_line_config.ini`、`dft_scene_params.txt`、网页查看器和启动脚本。
 
-解压后把 `api_line_config.example.ini` 复制成 `api_line_config.ini`，填写自己的 `base_url`、`api_key`、`model` 后即可运行。真实 `api_line_config.ini` 包含中转密钥，不会进入 git，也不会放进预编译包。
+解压后直接编辑包根目录的 `api_line_config.ini`，填写自己的 `base_url`、`api_key`、`model` 后即可运行。网页端调用后端时固定使用当前解压目录里的 `api_line_config.ini`。
 
 ## Potrace
 

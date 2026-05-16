@@ -82,6 +82,15 @@ function ensureDir(path) {
   if (!existsSync(path)) mkdirSync(path, { recursive: true });
 }
 
+function findToolExe() {
+  const candidates = [
+    join(root, "Fourier-api-approach.exe"),
+    join(root, "Fourier-api-approach", "x64", "Release", "Fourier-api-approach.exe"),
+    join(root, "x64", "Release", "Fourier-api-approach.exe")
+  ];
+  return candidates.find((path) => existsSync(path)) || candidates[0];
+}
+
 function childProcessEnv() {
   const env = { ...process.env };
   const opencvDir = env.OPENCV_DIR;
@@ -300,7 +309,7 @@ async function handleApi(request, response, url) {
       const args = ["--config", "api_line_config.ini", "--output", "results_api"];
       if (dftConfig) args.push("--dft-config", dftConfig);
       args.push(inputPath);
-      const task = runTask(`Extract ${safeStem(input)}`, join(root, "Fourier-api-approach", "x64", "Release", "Fourier-api-approach.exe"), args);
+      const task = runTask(`Extract ${safeStem(input)}`, findToolExe(), args);
       sendJson(response, { taskId: task.id });
     } catch (error) {
       sendJson(response, { error: error.message }, 400);
@@ -327,7 +336,7 @@ async function handleApi(request, response, url) {
       if (dftConfig) args.push("--dft-config", dftConfig);
       if (channel) args.push("--channels", channel);
       args.push(image);
-      const task = runTask(`Precompute ${image} ${mode}`, join(root, "Fourier-api-approach", "x64", "Release", "Fourier-api-approach.exe"), args);
+      const task = runTask(`Precompute ${image} ${mode}`, findToolExe(), args);
       sendJson(response, { taskId: task.id });
     } catch (error) {
       sendJson(response, { error: error.message }, 400);

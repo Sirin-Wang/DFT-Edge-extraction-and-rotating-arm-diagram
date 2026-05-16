@@ -25,9 +25,9 @@
 
 | 输入 | Image-2 + 本地二值化 | ProjectFourier XDoG Guide | Anime2Sketch | Informative Drawings |
 | --- | --- | --- | --- | --- |
-| `art2`<br>![art2](docs/comparison/inputs/art2.png) | <img src="docs/comparison/api/art2.png" alt="art2 API" width="3820"> | ![art2 ProjectFourier](docs/comparison/projectfourier/art2.svg) | ![art2 Anime2Sketch](docs/comparison/anime2sketch/art2.png) | ![art2 Informative Drawings](docs/comparison/informativedrawings/art2.png) |
-| `art3`<br>![art3](docs/comparison/inputs/art3.jpg) | <img src="docs/comparison/api/art3.png" alt="art3 API" width="520"> | ![art3 ProjectFourier](docs/comparison/projectfourier/art3.svg) | ![art3 Anime2Sketch](docs/comparison/anime2sketch/art3.jpg) | ![art3 Informative Drawings](docs/comparison/informativedrawings/art3.png) |
-| `art4`<br>![art4](docs/comparison/inputs/art4.jpg) | <img src="docs/comparison/api/art4.png" alt="art4 API" width="520"> | ![art4 ProjectFourier](docs/comparison/projectfourier/art4.svg) | ![art4 Anime2Sketch](docs/comparison/anime2sketch/art4.png) | ![art4 Informative Drawings](docs/comparison/informativedrawings/art4.png) |
+| `art2`<br>![art2](docs/comparison/inputs/art2.png) | <img src="docs/comparison/api/art2.png" alt="art2 API"> | ![art2 ProjectFourier](docs/comparison/projectfourier/art2.svg) | ![art2 Anime2Sketch](docs/comparison/anime2sketch/art2.png) | ![art2 Informative Drawings](docs/comparison/informativedrawings/art2.png) |
+| `art3`<br>![art3](docs/comparison/inputs/art3.jpg) | <img src="docs/comparison/api/art3.png" alt="art3 API"> | ![art3 ProjectFourier](docs/comparison/projectfourier/art3.svg) | ![art3 Anime2Sketch](docs/comparison/anime2sketch/art3.jpg) | ![art3 Informative Drawings](docs/comparison/informativedrawings/art3.png) |
+| `art4`<br>![art4](docs/comparison/inputs/art4.jpg) | <img src="docs/comparison/api/art4.png" alt="art4 API"> | ![art4 ProjectFourier](docs/comparison/projectfourier/art4.svg) | ![art4 Anime2Sketch](docs/comparison/anime2sketch/art4.png) | ![art4 Informative Drawings](docs/comparison/informativedrawings/art4.png) |
 
 从这些样例看，各方案的取向不同：
 

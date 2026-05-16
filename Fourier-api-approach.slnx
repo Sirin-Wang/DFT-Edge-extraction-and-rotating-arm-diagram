@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="Fourier-api-approach/Fourier-api-approach.vcxproj" Id="4fc5ba96-2326-40a6-a404-9a17b87bd5ee" />
+</Solution>

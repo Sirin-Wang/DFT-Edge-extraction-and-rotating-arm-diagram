@@ -1,0 +1,2587 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LLM Line-Art Fourier Viewer</title>
+  <style>
+    :root {
+      --bg: #f4f1ea;
+      --panel: #fffdf8;
+      --panel-2: #ece7dc;
+      --ink: #1e2424;
+      --muted: #5d6660;
+      --line: #d5cec0;
+      --accent: #087f8c;
+      --accent-2: #b86b25;
+      --danger: #b23a48;
+      --canvas: #fbfaf6;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+      font: 14px/1.45 "Segoe UI", Arial, sans-serif;
+      letter-spacing: 0;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
+      height: 100vh;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    aside {
+      border-right: 1px solid var(--line);
+      background: var(--panel);
+      padding: 18px;
+      min-height: 0;
+      overflow-y: auto;
+    }
+
+    main {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      overflow: hidden;
+    }
+
+    header {
+      min-height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+
+    .header-actions {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 650;
+    }
+
+    .status {
+      min-width: 0;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .canvas-wrap {
+      min-height: 0;
+      padding: 14px;
+      overflow: hidden;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: var(--canvas);
+      border: 1px solid var(--line);
+    }
+
+    body.scene-mode canvas {
+      display: block;
+    }
+
+    body.scene-mode .component-only {
+      display: none;
+    }
+
+    .group {
+      padding: 0 0 18px;
+      margin: 0 0 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .group:last-child {
+      border-bottom: 0;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .group-title {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    label {
+      display: block;
+      margin: 10px 0 5px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    select,
+    input[type="number"],
+    input[type="file"],
+    input[type="range"],
+    button {
+      width: 100%;
+      font: inherit;
+    }
+
+    select,
+    input[type="number"],
+    input[type="file"] {
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      padding: 5px 8px;
+    }
+
+    input[type="file"] {
+      padding: 4px 6px;
+      font-size: 12px;
+    }
+
+    input[type="range"] {
+      accent-color: var(--accent);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      align-items: end;
+    }
+
+    .param-row[hidden] {
+      display: none;
+    }
+
+    .button-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    button {
+      min-height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      cursor: pointer;
+    }
+
+    button.primary {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #fff;
+    }
+
+    button.warn {
+      border-color: var(--accent-2);
+      color: var(--accent-2);
+    }
+
+    button:disabled {
+      cursor: default;
+      opacity: 0.55;
+    }
+
+    .checks {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .check {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .check input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+    }
+
+    .metric {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .metric b {
+      color: var(--ink);
+      font-weight: 650;
+    }
+
+    .log {
+      min-height: 72px;
+      max-height: 190px;
+      overflow: auto;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #171b1b;
+      color: #d9eee9;
+      font: 12px/1.35 Consolas, "Courier New", monospace;
+      white-space: pre-wrap;
+    }
+
+    #svgHost {
+      position: fixed;
+      left: -100000px;
+      top: 0;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    @media (max-width: 840px) {
+      .app {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(0, 42vh) minmax(0, 1fr);
+      }
+
+      aside {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      main {
+        min-height: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside>
+      <div class="group">
+        <p class="group-title">Source</p>
+        <label for="viewModeSelect">View</label>
+        <select id="viewModeSelect">
+          <option value="scene" selected>Scene</option>
+          <option value="component">Component</option>
+        </select>
+        <div class="row">
+          <div>
+            <label for="imageSelect">Image</label>
+            <select id="imageSelect">
+              <option value="art">art</option>
+            </select>
+          </div>
+          <div>
+            <label for="channelSelect">Channel</label>
+            <select id="channelSelect">
+              <option value="API_Line">API line art</option>
+            </select>
+          </div>
+        </div>
+
+        <label for="sceneModeSelect">Scene Mode</label>
+        <select id="sceneModeSelect">
+          <option value="sequential" selected>Sequential</option>
+          <option value="simultaneous">Simultaneous</option>
+          <option value="full_svg">Full SVG</option>
+        </select>
+
+        <label class="component-only" for="componentRange">Component</label>
+        <div class="component-only">
+          <select id="componentSelect"></select>
+          <input id="componentRange" type="range" min="0" max="0" value="0">
+          <div class="row">
+            <input id="componentNumber" type="number" min="0" max="0" value="0">
+            <button id="reloadButton">Reload</button>
+          </div>
+          <div class="button-row">
+            <button id="prevButton">Prev</button>
+            <button id="nextButton">Next</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="group">
+        <p class="group-title">Processing</p>
+        <label for="uploadInput">Import Image</label>
+        <input id="uploadInput" type="file" accept=".png,.jpg,.jpeg,.bmp,image/png,image/jpeg,image/bmp">
+        <div class="button-row">
+          <button id="uploadButton">Upload</button>
+          <button id="extractButton" class="primary">Extract</button>
+        </div>
+        <div class="row">
+          <div>
+            <label for="precomputeModeSelect">DFT Mode</label>
+            <select id="precomputeModeSelect">
+              <option value="both" selected>Both</option>
+              <option value="sequential">Sequential</option>
+              <option value="simultaneous">Simultaneous</option>
+              <option value="full_svg">Full SVG</option>
+              <option value="all">All</option>
+            </select>
+          </div>
+          <div>
+            <label for="precomputeChannelSelect">Scope</label>
+            <select id="precomputeChannelSelect">
+              <option value="" selected>Configured channel</option>
+              <option value="API_Line">API line art</option>
+            </select>
+          </div>
+        </div>
+        <button id="precomputeButton" class="warn">Run DFT Precompute</button>
+        <label for="taskLog">Task Log</label>
+        <div id="taskLog" class="log">Idle</div>
+      </div>
+
+      <div class="group">
+        <p class="group-title">Scene DFT</p>
+        <label for="sceneParamModeSelect">Params For</label>
+        <select id="sceneParamModeSelect">
+          <option value="sequential" selected>Sequential</option>
+          <option value="simultaneous">Simultaneous</option>
+          <option value="full_svg">Full SVG</option>
+        </select>
+        <div class="row">
+          <div>
+            <label for="sceneSamplesInput">Samples</label>
+            <input id="sceneSamplesInput" type="number" min="64" step="1" value="2048">
+          </div>
+          <div>
+            <label for="sceneArmsInput">Arms</label>
+            <input id="sceneArmsInput" type="number" min="1" step="1" value="320">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="sceneMinLoopSamplesInput">Min Loop</label>
+            <input id="sceneMinLoopSamplesInput" type="number" min="2" step="1" value="24">
+          </div>
+          <div>
+            <label for="sceneMinLoopLengthInput">Min Length</label>
+            <input id="sceneMinLoopLengthInput" type="number" min="0" step="1" value="0">
+          </div>
+        </div>
+        <div class="row">
+          <div id="sceneMaxLoopBox">
+            <label class="check"><input id="sceneMaxLoopEnabled" type="checkbox" checked>Limit Loop</label>
+            <label for="sceneMaxLoopLengthInput">Max Length</label>
+            <input id="sceneMaxLoopLengthInput" type="number" min="0" step="1" value="260">
+          </div>
+          <div>
+            <label for="sceneSmoothPassesInput">Smooth</label>
+            <input id="sceneSmoothPassesInput" type="number" min="0" max="8" step="1" value="1">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="sceneDurationInput">Duration</label>
+            <input id="sceneDurationInput" type="number" min="3" step="1" value="90">
+          </div>
+          <div>
+            <label for="sceneFpsInput">FPS</label>
+            <input id="sceneFpsInput" type="number" min="0" step="1" value="60">
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="sceneDrawStrideInput">Draw Stride</label>
+            <input id="sceneDrawStrideInput" type="number" min="1" step="1" value="1">
+          </div>
+          <div>
+            <label for="sceneComponentPowerInput">Time Power</label>
+            <input id="sceneComponentPowerInput" type="number" min="0" max="1.5" step="0.05" value="0.7">
+          </div>
+        </div>
+        <div class="row">
+          <div id="sceneSimArmPartsBox">
+            <label for="sceneSimArmPartsInput">Arm Parts</label>
+            <input id="sceneSimArmPartsInput" type="number" min="0" step="1" value="24">
+          </div>
+        </div>
+        <div id="sceneFullSvgOptions" class="row param-row" hidden>
+          <div>
+            <label for="fullSvgOrderSelect">Full SVG Order</label>
+            <select id="fullSvgOrderSelect">
+              <option value="nearest" selected>Nearest</option>
+              <option value="component">Component</option>
+            </select>
+          </div>
+          <div>
+            <label for="fullSvgCoeffOrderSelect">Coeff Order</label>
+            <select id="fullSvgCoeffOrderSelect">
+              <option value="frequency" selected>Frequency</option>
+              <option value="amplitude">Amplitude</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="group component-only">
+        <p class="group-title">DFT</p>
+        <div class="row">
+          <div>
+            <label for="sampleSelect">Samples</label>
+            <select id="sampleSelect">
+              <option value="256">256</option>
+              <option value="512">512</option>
+              <option value="1024">1024</option>
+              <option value="2048" selected>2048</option>
+              <option value="4096">4096</option>
+            </select>
+          </div>
+          <div>
+            <label for="orderSelect">Order</label>
+            <select id="orderSelect">
+              <option value="amplitude" selected>Amplitude</option>
+              <option value="frequency">Frequency</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="checks">
+          <label class="check"><input id="fullDft" type="checkbox">Full SVG direct DFT</label>
+          <label class="check"><input id="fullSamplesPerComponent" type="checkbox">Samples x components</label>
+        </div>
+
+        <label for="harmonicRange">Arms</label>
+        <input id="harmonicRange" type="range" min="1" max="512" value="256">
+        <div class="metric"><span>Active</span><b id="harmonicValue">256</b></div>
+      </div>
+
+      <div class="group">
+        <p class="group-title">Playback</p>
+        <label for="speedRange">Speed</label>
+        <input id="speedRange" type="range" min="0" max="4" step="0.05" value="1">
+        <div class="metric"><span>Cycle</span><b id="speedValue">8.0s</b></div>
+
+        <label for="progressRange">Progress</label>
+        <input id="progressRange" type="range" min="0" max="1000" value="0">
+        <div class="metric"><span>Time</span><b id="progressValue">0.0s / 8.0s</b></div>
+
+        <div class="button-row">
+          <button id="playButton" class="primary">Pause</button>
+          <button id="recordButton" class="warn">Record</button>
+        </div>
+
+        <div class="checks">
+          <label class="check"><input id="showBackground" type="checkbox" checked>Full line art</label>
+          <label class="check"><input id="showOriginal" type="checkbox" checked>Original path</label>
+          <label class="check"><input id="fixedCenter" type="checkbox">Fixed center</label>
+          <label class="check"><input id="showArms" type="checkbox" checked>Rotating arms</label>
+          <label class="check"><input id="showTrace" type="checkbox" checked>Trace</label>
+          <label class="check component-only"><input id="autoCycle" type="checkbox" checked>Auto component</label>
+          <label class="check component-only"><input id="clearComponentTrail" type="checkbox" checked>Clear previous component trace</label>
+        </div>
+
+        <label for="armVisibilityRange">Arm visibility</label>
+        <input id="armVisibilityRange" type="range" min="0.25" max="3" step="0.05" value="1.5">
+        <div class="metric"><span>Visibility</span><b id="armVisibilityValue">150%</b></div>
+      </div>
+
+      <div class="group component-only">
+        <p class="group-title">Stats</p>
+        <div class="metric"><span>Components</span><b id="componentCount">0</b></div>
+        <div class="metric"><span>Paths</span><b id="pathCount">0</b></div>
+        <div class="metric"><span>Length</span><b id="pathLength">0</b></div>
+        <div class="metric"><span>ViewBox</span><b id="viewBoxText">0 x 0</b></div>
+      </div>
+    </aside>
+
+    <main>
+      <header>
+        <h1>LLM Line-Art Fourier Viewer</h1>
+        <div class="header-actions">
+          <div id="status" class="status">Loading</div>
+        </div>
+      </header>
+      <div class="canvas-wrap">
+        <canvas id="stage"></canvas>
+      </div>
+    </main>
+  </div>
+
+  <div id="svgHost"></div>
+
+  <script>
+    const TAU = Math.PI * 2;
+    const els = {
+      image: document.getElementById("imageSelect"),
+      channel: document.getElementById("channelSelect"),
+      viewMode: document.getElementById("viewModeSelect"),
+      sceneMode: document.getElementById("sceneModeSelect"),
+      componentSelect: document.getElementById("componentSelect"),
+      componentRange: document.getElementById("componentRange"),
+      componentNumber: document.getElementById("componentNumber"),
+      reload: document.getElementById("reloadButton"),
+      prev: document.getElementById("prevButton"),
+      next: document.getElementById("nextButton"),
+      sample: document.getElementById("sampleSelect"),
+      order: document.getElementById("orderSelect"),
+      fullDft: document.getElementById("fullDft"),
+      fullSamplesPerComponent: document.getElementById("fullSamplesPerComponent"),
+      harmonic: document.getElementById("harmonicRange"),
+      harmonicValue: document.getElementById("harmonicValue"),
+      speed: document.getElementById("speedRange"),
+      speedValue: document.getElementById("speedValue"),
+      progress: document.getElementById("progressRange"),
+      progressValue: document.getElementById("progressValue"),
+      play: document.getElementById("playButton"),
+      record: document.getElementById("recordButton"),
+      showBackground: document.getElementById("showBackground"),
+      showOriginal: document.getElementById("showOriginal"),
+      fixedCenter: document.getElementById("fixedCenter"),
+      showArms: document.getElementById("showArms"),
+      showTrace: document.getElementById("showTrace"),
+      autoCycle: document.getElementById("autoCycle"),
+      clearComponentTrail: document.getElementById("clearComponentTrail"),
+      armVisibility: document.getElementById("armVisibilityRange"),
+      armVisibilityValue: document.getElementById("armVisibilityValue"),
+      uploadInput: document.getElementById("uploadInput"),
+      upload: document.getElementById("uploadButton"),
+      extract: document.getElementById("extractButton"),
+      precomputeMode: document.getElementById("precomputeModeSelect"),
+      precomputeChannel: document.getElementById("precomputeChannelSelect"),
+      precompute: document.getElementById("precomputeButton"),
+      taskLog: document.getElementById("taskLog"),
+      sceneParamMode: document.getElementById("sceneParamModeSelect"),
+      sceneSamples: document.getElementById("sceneSamplesInput"),
+      sceneArms: document.getElementById("sceneArmsInput"),
+      sceneMinLoopSamples: document.getElementById("sceneMinLoopSamplesInput"),
+      sceneMinLoopLength: document.getElementById("sceneMinLoopLengthInput"),
+      sceneMaxLoopBox: document.getElementById("sceneMaxLoopBox"),
+      sceneMaxLoopEnabled: document.getElementById("sceneMaxLoopEnabled"),
+      sceneMaxLoopLength: document.getElementById("sceneMaxLoopLengthInput"),
+      sceneSmoothPasses: document.getElementById("sceneSmoothPassesInput"),
+      sceneDuration: document.getElementById("sceneDurationInput"),
+      sceneFps: document.getElementById("sceneFpsInput"),
+      sceneDrawStride: document.getElementById("sceneDrawStrideInput"),
+      sceneComponentPower: document.getElementById("sceneComponentPowerInput"),
+      sceneSimArmParts: document.getElementById("sceneSimArmPartsInput"),
+      sceneSimArmPartsBox: document.getElementById("sceneSimArmPartsBox"),
+      sceneFullSvgOptions: document.getElementById("sceneFullSvgOptions"),
+      fullSvgOrder: document.getElementById("fullSvgOrderSelect"),
+      fullSvgCoeffOrder: document.getElementById("fullSvgCoeffOrderSelect"),
+      componentCount: document.getElementById("componentCount"),
+      pathCount: document.getElementById("pathCount"),
+      pathLength: document.getElementById("pathLength"),
+      viewBoxText: document.getElementById("viewBoxText"),
+      status: document.getElementById("status"),
+      canvas: document.getElementById("stage"),
+      svgHost: document.getElementById("svgHost")
+    };
+
+    const state = {
+      loadToken: 0,
+      images: [],
+      componentFiles: [],
+      playing: true,
+      t: 0,
+      loops: [],
+      componentSchedule: [],
+      componentTrail: new Map(),
+      viewBox: { x: 0, y: 0, width: 1, height: 1 },
+      bgImage: null,
+      componentImage: null,
+      pathCount: 0,
+      totalLength: 0,
+      recording: false,
+      sceneData: null,
+      sceneTime: 0,
+      sceneOffscreen: null,
+      sceneOffscreenKey: "",
+      lastSceneFrame: 0,
+      seeking: false,
+      viewerConfig: {},
+      recordSeconds: 6,
+      uploadedInput: "",
+      activeTaskId: "",
+      sceneParamOverrides: {}
+    };
+
+    const sceneModes = ["sequential", "simultaneous", "full_svg"];
+    const sceneParamDefaults = {
+      sequential: {
+        samples: 2048,
+        arms: 320,
+        min_loop_samples: 24,
+        min_loop_length: 0,
+        max_loop_length: 260,
+        smooth_passes: 0,
+        duration: 90,
+        hold: 3,
+        target_fps: 60,
+        draw_stride: 1,
+        component_time_power: 0.70,
+        coefficient_order: "amplitude"
+      },
+      simultaneous: {
+        samples: 1024,
+        arms: 160,
+        min_loop_samples: 16,
+        min_loop_length: 18,
+        max_loop_length: 260,
+        smooth_passes: 1,
+        duration: 60,
+        hold: 3,
+        target_fps: 60,
+        draw_stride: 2,
+        component_time_power: 1.0,
+        sim_arm_parts: 24,
+        coefficient_order: "amplitude"
+      },
+      full_svg: {
+        samples: 2048,
+        arms: 1024,
+        min_loop_samples: 12,
+        min_loop_length: 8,
+        max_loop_length: 0,
+        smooth_passes: 1,
+        duration: 90,
+        hold: 3,
+        target_fps: 24,
+        draw_stride: 2,
+        component_time_power: 1.0,
+        order: "nearest",
+        coefficient_order: "frequency"
+      }
+    };
+
+    const ctx = els.canvas.getContext("2d");
+
+    function padIndex(value) {
+      return String(value).padStart(4, "0");
+    }
+
+    function currentCount() {
+      return state.componentFiles.length || 1;
+    }
+
+    function currentComponentIndex() {
+      return clamp(parseInt(els.componentNumber.value || "0", 10), 0, currentCount() - 1);
+    }
+
+    function componentUrl() {
+      if (els.fullDft.checked) {
+        return backgroundUrl();
+      }
+      const index = currentComponentIndex();
+      const file = state.componentFiles[index] || `${els.channel.value}_${padIndex(index)}.svg`;
+      return `results_api/${els.image.value}/comp/${file}`;
+    }
+
+    function channelLabel(value) {
+      if (value === "API_Line") return "API line art";
+      return value || "channel";
+    }
+
+    function sourceLabel() {
+      if (els.fullDft.checked) return `${channelLabel(els.channel.value)} full SVG`;
+      return state.componentFiles[currentComponentIndex()] || `${els.channel.value}_${padIndex(currentComponentIndex())}.svg`;
+    }
+
+    function backgroundUrl() {
+      return `results_api/${els.image.value}/${els.channel.value}.svg`;
+    }
+
+    function dftDataUrl() {
+      return `results_api/${els.image.value}/dft_data/${els.channel.value}_${els.sceneMode.value}.json`;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function distance(a, b) {
+      if (!a || !b) return Infinity;
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function traceDeviationLimit(component) {
+      const vb = state.sceneData?.viewBox || state.viewBox;
+      const diagonal = Math.hypot(vb.width || 1, vb.height || 1);
+      if (state.sceneData?.mode !== "full_svg") return Infinity;
+      return diagonal * 0.010;
+    }
+
+    function setStatus(text) {
+      els.status.textContent = text;
+    }
+
+    function parseConfigText(text) {
+      const config = {};
+      for (const rawLine of String(text || "").split(/\r?\n/)) {
+        const line = rawLine.replace(/#.*/, "").trim();
+        if (!line) continue;
+        const split = line.indexOf("=");
+        if (split < 0) continue;
+        const key = line.slice(0, split).trim();
+        const value = line.slice(split + 1).trim();
+        if (key) config[key] = value;
+      }
+      return config;
+    }
+
+    function configNumber(key, fallback, min, max) {
+      const value = Number(state.viewerConfig[key]);
+      if (!Number.isFinite(value)) return fallback;
+      return clamp(value, min, max);
+    }
+
+    function sceneParamKey(mode, key) {
+      return `${mode}.${key}`;
+    }
+
+    function defaultMaxLoopLength(mode) {
+      const value = Number(sceneParamDefaults[mode]?.max_loop_length);
+      return value > 0 ? value : 260;
+    }
+
+    function sceneParamValue(mode, key) {
+      const overrideKey = sceneParamKey(mode, key);
+      if (Object.prototype.hasOwnProperty.call(state.sceneParamOverrides, overrideKey)) {
+        return state.sceneParamOverrides[overrideKey];
+      }
+      if (Object.prototype.hasOwnProperty.call(state.viewerConfig, overrideKey)) {
+        return state.viewerConfig[overrideKey];
+      }
+      if (Object.prototype.hasOwnProperty.call(state.viewerConfig, key)) {
+        return state.viewerConfig[key];
+      }
+      return sceneParamDefaults[mode]?.[key] ?? "";
+    }
+
+    function setSceneParamOverride(key, value) {
+      const mode = els.sceneParamMode.value;
+      if (!sceneModes.includes(mode)) return;
+      state.sceneParamOverrides[sceneParamKey(mode, key)] = String(value ?? "").trim();
+    }
+
+    function sceneMaxLoopEnabledValue(mode) {
+      const overrideKey = sceneParamKey(mode, "max_loop_enabled");
+      if (Object.prototype.hasOwnProperty.call(state.sceneParamOverrides, overrideKey)) {
+        return state.sceneParamOverrides[overrideKey] === "true";
+      }
+      return Number(sceneParamValue(mode, "max_loop_length")) > 0;
+    }
+
+    function sceneMaxLoopParamValue(mode) {
+      if (!sceneMaxLoopEnabledValue(mode) || mode === "full_svg") return "0";
+      const value = Number(sceneParamValue(mode, "max_loop_length"));
+      return String(value > 0 ? value : defaultMaxLoopLength(mode));
+    }
+
+    function setSceneMaxLoopEnabled(value) {
+      const mode = els.sceneParamMode.value;
+      if (!sceneModes.includes(mode)) return;
+      state.sceneParamOverrides[sceneParamKey(mode, "max_loop_enabled")] = value ? "true" : "false";
+      els.sceneMaxLoopLength.disabled = !value;
+      if (value && Number(els.sceneMaxLoopLength.value) <= 0) {
+        els.sceneMaxLoopLength.value = defaultMaxLoopLength(mode);
+      }
+      if (value) setSceneParamOverride("max_loop_length", els.sceneMaxLoopLength.value);
+    }
+
+    function loadSceneParamControls() {
+      const mode = sceneModes.includes(els.sceneParamMode.value) ? els.sceneParamMode.value : "sequential";
+      els.sceneParamMode.value = mode;
+      const maxLoopEnabled = sceneMaxLoopEnabledValue(mode);
+      const maxLoopLength = Number(sceneParamValue(mode, "max_loop_length"));
+      els.sceneSamples.value = sceneParamValue(mode, "samples");
+      els.sceneArms.value = sceneParamValue(mode, "arms");
+      els.sceneMinLoopSamples.value = sceneParamValue(mode, "min_loop_samples");
+      els.sceneMinLoopLength.value = sceneParamValue(mode, "min_loop_length");
+      els.sceneMaxLoopEnabled.checked = maxLoopEnabled && mode !== "full_svg";
+      els.sceneMaxLoopLength.value = maxLoopLength > 0 ? maxLoopLength : defaultMaxLoopLength(mode);
+      els.sceneMaxLoopLength.disabled = !els.sceneMaxLoopEnabled.checked;
+      els.sceneSmoothPasses.value = sceneParamValue(mode, "smooth_passes");
+      els.sceneDuration.value = sceneParamValue(mode, "duration");
+      els.sceneFps.value = sceneParamValue(mode, "target_fps");
+      els.sceneDrawStride.value = sceneParamValue(mode, "draw_stride");
+      els.sceneComponentPower.value = sceneParamValue(mode, "component_time_power");
+      els.sceneSimArmParts.value = sceneParamValue(mode, "sim_arm_parts");
+      els.fullSvgOrder.value = sceneParamValue(mode, "order") || "nearest";
+      els.fullSvgCoeffOrder.value = sceneParamValue(mode, "coefficient_order") || "frequency";
+      els.sceneSimArmPartsBox.hidden = mode !== "simultaneous";
+      els.sceneMaxLoopBox.hidden = mode === "full_svg";
+      els.sceneFullSvgOptions.hidden = mode !== "full_svg";
+    }
+
+    function precomputeTargetModes() {
+      const mode = els.precomputeMode.value;
+      if (mode === "both") return ["sequential", "simultaneous"];
+      if (mode === "all") return ["sequential", "simultaneous", "full_svg"];
+      return sceneModes.includes(mode) ? [mode] : ["sequential", "simultaneous"];
+    }
+
+    function collectSceneParams() {
+      const params = {};
+      for (const mode of precomputeTargetModes()) {
+        for (const key of ["samples", "arms", "min_loop_samples", "min_loop_length", "smooth_passes", "duration", "target_fps", "draw_stride", "component_time_power"]) {
+          params[sceneParamKey(mode, key)] = sceneParamValue(mode, key);
+        }
+        params[sceneParamKey(mode, "max_loop_length")] = sceneMaxLoopParamValue(mode);
+        if (mode === "simultaneous") {
+          params[sceneParamKey(mode, "sim_arm_parts")] = sceneParamValue(mode, "sim_arm_parts");
+        }
+        if (mode === "full_svg") {
+          params[sceneParamKey(mode, "order")] = sceneParamValue(mode, "order");
+          params[sceneParamKey(mode, "coefficient_order")] = sceneParamValue(mode, "coefficient_order");
+        }
+      }
+      return params;
+    }
+
+    function updateRecordLabel() {
+      const seconds = Number(state.recordSeconds);
+      const label = Number.isInteger(seconds) ? String(seconds) : seconds.toFixed(1);
+      els.record.textContent = `Record ${label}s`;
+    }
+
+    function updateArmVisibilityLabel() {
+      els.armVisibilityValue.textContent = `${Math.round(Number(els.armVisibility.value) * 100)}%`;
+    }
+
+    async function loadViewerConfig() {
+      try {
+        const response = await fetch("dft_scene_params.txt", { cache: "no-store" });
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        state.viewerConfig = parseConfigText(await response.text());
+      } catch (err) {
+        state.viewerConfig = {};
+      }
+
+      state.recordSeconds = configNumber("record_seconds", 6, 1, 600);
+      updateRecordLabel();
+      loadSceneParamControls();
+    }
+
+    async function refreshComponentList() {
+      state.componentFiles = [];
+      try {
+        const url = `/api/components?image=${encodeURIComponent(els.image.value)}&channel=${encodeURIComponent(els.channel.value)}`;
+        const response = await fetch(url, { cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (Array.isArray(data.files) && data.files.length > 0) {
+          state.componentFiles = data.files;
+        }
+      } catch (err) {
+        state.componentFiles = [];
+      }
+      els.componentSelect.replaceChildren(...state.componentFiles.map((file, index) => {
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = `${index}: ${file}`;
+        return option;
+      }));
+    }
+
+    async function refreshImageList() {
+      try {
+        const response = await fetch("/api/images", { cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!Array.isArray(data.images) || data.images.length === 0) return;
+
+        const previous = els.image.value;
+        state.images = data.images;
+        els.image.replaceChildren(...state.images.map((image) => {
+          const option = document.createElement("option");
+          option.value = image;
+          option.textContent = image;
+          return option;
+        }));
+        els.image.value = state.images.includes(previous) ? previous : state.images[0];
+      } catch (err) {
+        state.images = [];
+      }
+    }
+
+    function updateComponentControls() {
+      const count = currentCount();
+      const maxIndex = Math.max(0, count - 1);
+      let index = currentComponentIndex();
+
+      els.componentRange.max = maxIndex;
+      els.componentNumber.max = maxIndex;
+      els.componentRange.value = index;
+      els.componentNumber.value = index;
+      els.componentSelect.value = String(index);
+      els.componentCount.textContent = count;
+    }
+
+    function setTaskLog(text) {
+      els.taskLog.textContent = text || "Idle";
+      els.taskLog.scrollTop = els.taskLog.scrollHeight;
+    }
+
+    function setProcessingBusy(busy) {
+      els.upload.disabled = busy;
+      els.extract.disabled = busy;
+      els.precompute.disabled = busy;
+    }
+
+    async function postJson(url, body) {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body || {})
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `${response.status} ${response.statusText}`);
+      return data;
+    }
+
+    async function watchTask(taskId, afterComplete) {
+      state.activeTaskId = taskId;
+      setProcessingBusy(true);
+      while (state.activeTaskId === taskId) {
+        const response = await fetch(`/api/task?id=${encodeURIComponent(taskId)}`, { cache: "no-store" });
+        const task = await response.json();
+        if (!response.ok) throw new Error(task.error || "Task failed");
+        setTaskLog(`${task.label}\n${task.status}${task.code === null ? "" : ` (${task.code})`}\n\n${task.log || ""}`);
+        if (task.status === "completed" || task.status === "failed") {
+          state.activeTaskId = "";
+          setProcessingBusy(false);
+          if (task.status === "completed" && afterComplete) await afterComplete(task);
+          return task;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      }
+      setProcessingBusy(false);
+    }
+
+    async function uploadSelectedFile() {
+      setProcessingBusy(true);
+      try {
+        const file = els.uploadInput.files && els.uploadInput.files[0];
+        if (!file) {
+          setTaskLog("Choose an image file first.");
+          return null;
+        }
+        const form = new FormData();
+        form.append("file", file);
+        setTaskLog(`Uploading ${file.name}...`);
+        const response = await fetch("/api/upload", { method: "POST", body: form });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `${response.status} ${response.statusText}`);
+        state.uploadedInput = data.path;
+        setTaskLog(`Uploaded ${data.path}`);
+        return data;
+      } finally {
+        setProcessingBusy(false);
+      }
+    }
+
+    async function runExtraction() {
+      try {
+        let upload = null;
+        if (els.uploadInput.files && els.uploadInput.files[0]) upload = await uploadSelectedFile();
+        const input = upload?.path || state.uploadedInput;
+        if (!input) {
+          setTaskLog("Upload an image before extraction.");
+          return;
+        }
+        const data = await postJson("/api/process", {
+          input,
+          params: collectSceneParams()
+        });
+        await watchTask(data.taskId, async () => {
+          await refreshImageList();
+          const imageName = (upload?.image || input.split(/[\\/]/).pop().replace(/\.[^.]+$/, ""));
+          if (state.images.includes(imageName)) els.image.value = imageName;
+          await refreshComponentList();
+          updateComponentControls();
+          if (isSceneMode()) loadCurrentScene();
+          else loadCurrentComponent();
+        });
+      } catch (err) {
+        setTaskLog(`Error: ${err.message}`);
+      }
+    }
+
+    async function runPrecompute() {
+      try {
+        const data = await postJson("/api/precompute", {
+          image: els.image.value,
+          mode: els.precomputeMode.value,
+          channel: els.precomputeChannel.value,
+          params: collectSceneParams()
+        });
+        await watchTask(data.taskId, async () => {
+          if (isSceneMode()) loadCurrentScene();
+        });
+      } catch (err) {
+        setTaskLog(`Error: ${err.message}`);
+      }
+    }
+
+    function clearSavedComponentTrail() {
+      state.componentTrail.clear();
+    }
+
+    function captureCurrentComponentTrail() {
+      if (isSceneMode() || els.clearComponentTrail.checked || state.loops.length === 0) return;
+      const index = currentComponentIndex();
+      state.componentTrail.set(index, {
+        loops: state.loops.map((loop) => ({
+          points: loop.points,
+          trace: loop.trace,
+          breaks: loop.breaks
+        })),
+        viewBox: { ...state.viewBox }
+      });
+    }
+
+    function rememberOrClearComponentTrail() {
+      if (els.clearComponentTrail.checked) {
+        clearSavedComponentTrail();
+      } else {
+        captureCurrentComponentTrail();
+      }
+    }
+
+    function updateSpeedLabel() {
+      const speed = Number(els.speed.value);
+      const duration = isSceneMode() && state.sceneData ? state.sceneData.duration : 8;
+      els.speedValue.textContent = speed <= 0 ? "paused" : `${(duration / speed).toFixed(1)}s`;
+    }
+
+    function playbackDurationMs() {
+      if (isSceneMode() && state.sceneData) {
+        const duration = Number(state.sceneData.duration || 60);
+        const hold = Number(state.sceneData.hold || 0);
+        return Math.max(1000, (duration + hold) * 1000);
+      }
+      return 8000;
+    }
+
+    function playbackProgress() {
+      if (isSceneMode()) {
+        const duration = playbackDurationMs();
+        if (duration <= 0) return 0;
+        return (((state.sceneTime % duration) + duration) % duration) / duration;
+      }
+      return clamp(state.t, 0, 1);
+    }
+
+    function updateProgressLabel() {
+      const duration = playbackDurationMs();
+      const progress = playbackProgress();
+      if (!state.seeking) {
+        els.progress.value = Math.round(progress * 1000);
+      }
+      els.progressValue.textContent = `${(progress * duration / 1000).toFixed(1)}s / ${(duration / 1000).toFixed(1)}s`;
+    }
+
+    function seekToProgress(value) {
+      const progress = clamp(Number(value) / 1000, 0, 1);
+      if (isSceneMode()) {
+        const duration = playbackDurationMs();
+        state.sceneTime = progress >= 1 ? duration - 1 : progress * duration;
+        state.lastSceneFrame = 0;
+      } else {
+        state.t = progress;
+      }
+      updateProgressLabel();
+      render();
+    }
+
+    function isSceneMode() {
+      return els.viewMode.value === "scene";
+    }
+
+    function setViewMode() {
+      document.body.classList.toggle("scene-mode", isSceneMode());
+      state.t = 0;
+      state.sceneTime = 0;
+      state.lastSceneFrame = 0;
+      clearSavedComponentTrail();
+      updateSpeedLabel();
+      updateProgressLabel();
+      if (isSceneMode()) {
+        loadCurrentScene();
+      } else {
+        loadCurrentComponent();
+      }
+    }
+
+    function updateHarmonicLabel() {
+      const maxArms = Math.max(1, ...state.loops.map((loop) => loop.coeffs.length - 1));
+      const active = clamp(Number(els.harmonic.value), 1, maxArms);
+      els.harmonic.max = maxArms;
+      els.harmonic.value = active;
+      els.harmonicValue.textContent = active;
+    }
+
+    function rebuildComponentSchedule() {
+      const total = state.loops.reduce((sum, loop) => sum + Math.max(1, loop.length || 0), 0);
+      let cursor = 0;
+      state.componentSchedule = state.loops.map((loop) => {
+        const span = total > 0 ? Math.max(1, loop.length || 0) / total : 1 / Math.max(1, state.loops.length);
+        const start = cursor;
+        cursor += span;
+        return { start, end: cursor };
+      });
+      if (state.componentSchedule.length > 0) {
+        state.componentSchedule[state.componentSchedule.length - 1].end = 1;
+      }
+    }
+
+    function componentLoopProgress(index) {
+      if (els.sceneMode.value !== "sequential" || state.loops.length <= 1) {
+        return state.t;
+      }
+
+      const span = state.componentSchedule[index] || { start: 0, end: 1 };
+      if (state.t < span.start) return 0;
+      if (state.t >= span.end) return 1;
+      return (state.t - span.start) / Math.max(0.000001, span.end - span.start);
+    }
+
+    function armVisibility() {
+      return Number(els.armVisibility.value) || 1;
+    }
+
+    function parseViewBox(svg) {
+      const raw = svg.getAttribute("viewBox");
+      if (raw) {
+        const parts = raw.trim().split(/[\s,]+/).map(Number);
+        if (parts.length === 4 && parts.every(Number.isFinite)) {
+          return { x: parts[0], y: parts[1], width: parts[2], height: parts[3] };
+        }
+      }
+
+      const width = parseFloat(svg.getAttribute("width")) || 1;
+      const height = parseFloat(svg.getAttribute("height")) || 1;
+      return { x: 0, y: 0, width, height };
+    }
+
+    async function fetchSvgDocument(url) {
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`${response.status} ${response.statusText}`);
+      }
+      const text = await response.text();
+      const doc = new DOMParser().parseFromString(text, "image/svg+xml");
+      const error = doc.querySelector("parsererror");
+      if (error) {
+        throw new Error("SVG parse failed");
+      }
+      return doc.documentElement;
+    }
+
+    async function fetchOptionalSvgDocument(url) {
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) return null;
+      const text = await response.text();
+      const doc = new DOMParser().parseFromString(text, "image/svg+xml");
+      if (doc.querySelector("parsererror")) return null;
+      return doc.documentElement;
+    }
+
+    function applyMatrix(point, matrix) {
+      return {
+        x: matrix.a * point.x + matrix.c * point.y + matrix.e,
+        y: matrix.b * point.x + matrix.d * point.y + matrix.f
+      };
+    }
+
+    function splitPathDataIntoLoops(d) {
+      const tokens = String(d || "").match(/[AaCcHhLlMmQqSsTtVvZz]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?/g) || [];
+      const paramCounts = { A: 7, C: 6, H: 1, L: 2, M: 2, Q: 4, S: 4, T: 2, V: 1 };
+      const loops = [];
+      let chunk = [];
+      let command = "";
+      let index = 0;
+      let current = { x: 0, y: 0 };
+      let subpathStart = { x: 0, y: 0 };
+
+      const isCommand = (token) => /^[A-Za-z]$/.test(token);
+      const numberAt = () => Number(tokens[index++]);
+      const format = (value) => {
+        const rounded = Math.abs(value) < 1e-9 ? 0 : value;
+        return Number(rounded.toFixed(6)).toString();
+      };
+      const push = (cmd, values = []) => {
+        chunk.push(values.length ? `${cmd} ${values.map(format).join(" ")}` : cmd);
+      };
+      const finish = () => {
+        if (chunk.length > 0) {
+          loops.push(chunk.join(" "));
+          chunk = [];
+        }
+      };
+      const updateEndpoint = (upper, relative, values) => {
+        const relPoint = (x, y) => relative ? { x: current.x + x, y: current.y + y } : { x, y };
+        if (upper === "L") current = relPoint(values[0], values[1]);
+        else if (upper === "H") current = { x: relative ? current.x + values[0] : values[0], y: current.y };
+        else if (upper === "V") current = { x: current.x, y: relative ? current.y + values[0] : values[0] };
+        else if (upper === "C") current = relPoint(values[4], values[5]);
+        else if (upper === "S" || upper === "Q") current = relPoint(values[2], values[3]);
+        else if (upper === "T") current = relPoint(values[0], values[1]);
+        else if (upper === "A") current = relPoint(values[5], values[6]);
+      };
+
+      while (index < tokens.length) {
+        if (isCommand(tokens[index])) {
+          command = tokens[index++];
+        } else if (!command) {
+          break;
+        }
+
+        const upper = command.toUpperCase();
+        const relative = command !== upper;
+
+        if (upper === "Z") {
+          push("Z");
+          current = { ...subpathStart };
+          finish();
+          command = "";
+          continue;
+        }
+
+        if (upper === "M") {
+          finish();
+          if (index + 1 >= tokens.length) break;
+          let x = numberAt();
+          let y = numberAt();
+          if (relative) {
+            x += current.x;
+            y += current.y;
+          }
+          current = { x, y };
+          subpathStart = { x, y };
+          push("M", [x, y]);
+
+          while (index + 1 < tokens.length && !isCommand(tokens[index])) {
+            const lx = numberAt();
+            const ly = numberAt();
+            if (relative) {
+              push("l", [lx, ly]);
+              current = { x: current.x + lx, y: current.y + ly };
+            } else {
+              push("L", [lx, ly]);
+              current = { x: lx, y: ly };
+            }
+          }
+          command = relative ? "l" : "L";
+          continue;
+        }
+
+        const count = paramCounts[upper];
+        if (!count) break;
+
+        while (index < tokens.length && !isCommand(tokens[index])) {
+          if (index + count > tokens.length) break;
+          const values = [];
+          for (let i = 0; i < count; ++i) {
+            if (isCommand(tokens[index])) break;
+            values.push(numberAt());
+          }
+          if (values.length !== count) break;
+          push(command, values);
+          updateEndpoint(upper, relative, values);
+        }
+      }
+
+      finish();
+      return loops;
+    }
+
+    function collectSvgLoops(svg) {
+      const viewBox = parseViewBox(svg);
+      const imported = document.importNode(svg, true);
+      imported.setAttribute("width", String(viewBox.width));
+      imported.setAttribute("height", String(viewBox.height));
+      imported.style.width = `${viewBox.width}px`;
+      imported.style.height = `${viewBox.height}px`;
+      imported.style.position = "absolute";
+      imported.style.left = "0";
+      imported.style.top = "0";
+      els.svgHost.replaceChildren(imported);
+
+      const paths = Array.from(imported.querySelectorAll("path"));
+      const loops = [];
+      let totalLength = 0;
+
+      for (const path of paths) {
+        for (const d of splitPathDataIntoLoops(path.getAttribute("d"))) {
+          const loopPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          loopPath.setAttribute("d", d);
+          const parent = path.parentNode || imported;
+          parent.appendChild(loopPath);
+
+          let length = 0;
+          try {
+            length = loopPath.getTotalLength();
+          } catch (err) {
+            length = 0;
+          }
+          if (length <= 0) {
+            loopPath.remove();
+            continue;
+          }
+
+          const matrix = loopPath.getCTM();
+          if (!matrix) {
+            loopPath.remove();
+            continue;
+          }
+
+          loops.push({ path: loopPath, length, matrix });
+          totalLength += length;
+        }
+      }
+
+      if (totalLength <= 0 || loops.length === 0) {
+        throw new Error("No drawable paths");
+      }
+
+      return { loops, viewBox, pathCount: loops.length, totalLength };
+    }
+
+    function sampleLoop(loop, count) {
+      const points = [];
+      for (let i = 0; i < count; ++i) {
+        const ratio = i / Math.max(1, count);
+        let distance;
+        if (Number.isFinite(loop.startOffset)) {
+          distance = loop.startOffset + loop.length * (loop.reversed ? -ratio : ratio);
+          distance = ((distance % loop.length) + loop.length) % loop.length;
+        } else {
+          distance = loop.length * (loop.reversed ? 1 - ratio : ratio);
+        }
+        const localPoint = loop.path.getPointAtLength(distance);
+        points.push(applyMatrix(localPoint, loop.matrix));
+      }
+      return points;
+    }
+
+    function transformedPointAt(loop, distance) {
+      const bounded = Math.max(0, Math.min(loop.length, distance));
+      return applyMatrix(loop.path.getPointAtLength(bounded), loop.matrix);
+    }
+
+    function isClosedLoop(loop) {
+      const start = transformedPointAt(loop, 0);
+      const end = transformedPointAt(loop, loop.length);
+      return Math.hypot(start.x - end.x, start.y - end.y) <= Math.max(0.001, loop.length * 0.000001);
+    }
+
+    function loopStart(loop) {
+      if (Number.isFinite(loop.startOffset)) return transformedPointAt(loop, loop.startOffset);
+      return transformedPointAt(loop, loop.reversed ? loop.length : 0);
+    }
+
+    function loopEnd(loop) {
+      if (Number.isFinite(loop.startOffset)) return transformedPointAt(loop, loop.startOffset);
+      return transformedPointAt(loop, loop.reversed ? 0 : loop.length);
+    }
+
+    function nearestLoopChoice(current, loop) {
+      if (isClosedLoop(loop)) {
+        let best = { distance: Infinity, reversed: false, startOffset: 0 };
+        const candidates = Math.max(16, Math.min(96, Math.ceil(loop.length / 8)));
+        for (let i = 0; i < candidates; ++i) {
+          const offset = loop.length * i / candidates;
+          const point = transformedPointAt(loop, offset);
+          const distance = Math.hypot(current.x - point.x, current.y - point.y);
+          if (distance < best.distance) best = { distance, reversed: false, startOffset: offset };
+        }
+        return best;
+      }
+
+      const start = transformedPointAt(loop, 0);
+      const end = transformedPointAt(loop, loop.length);
+      const startDistance = Math.hypot(current.x - start.x, current.y - start.y);
+      const endDistance = Math.hypot(current.x - end.x, current.y - end.y);
+      return endDistance < startDistance
+        ? { distance: endDistance, reversed: true }
+        : { distance: startDistance, reversed: false };
+    }
+
+    function orderLoopsNearest(loops, current = null) {
+      const sourceLoops = loops.filter((loop) => loop.length > 0);
+      if (sourceLoops.length < 2 && !current) return sourceLoops;
+
+      const ordered = [];
+      const used = new Set();
+      let cursor = current;
+      while (ordered.length < sourceLoops.length) {
+        let bestIndex = -1;
+        let bestChoice = { distance: Infinity, reversed: false };
+        if (!cursor && ordered.length === 0) {
+          bestIndex = 0;
+        } else {
+          for (let i = 0; i < sourceLoops.length; ++i) {
+            if (used.has(i)) continue;
+            const choice = nearestLoopChoice(cursor, sourceLoops[i]);
+            if (choice.distance < bestChoice.distance) {
+              bestChoice = choice;
+              bestIndex = i;
+            }
+          }
+        }
+        if (bestIndex < 0) break;
+        used.add(bestIndex);
+        const selected = { ...sourceLoops[bestIndex], reversed: bestChoice.reversed, startOffset: bestChoice.startOffset };
+        ordered.push(selected);
+        cursor = loopEnd(selected);
+      }
+      return ordered;
+    }
+
+    function sampleSvg(svg, sampleCount) {
+      const collected = collectSvgLoops(svg);
+      return {
+        loops: collected.loops.map((loop) => {
+          const loopSamples = Math.max(64, Math.round(sampleCount * loop.length / Math.max(1, collected.totalLength)));
+          return { points: sampleLoop(loop, loopSamples), length: loop.length };
+        }).filter((loop) => loop.points.length >= 2),
+        viewBox: collected.viewBox,
+        pathCount: collected.pathCount,
+        totalLength: collected.totalLength
+      };
+    }
+
+    function allocateSampleCounts(loops, targetCount) {
+      const sourceLoops = loops.filter((loop) => loop.length > 0);
+      if (!sourceLoops.length) return [];
+
+      const totalLength = sourceLoops.reduce((sum, loop) => sum + loop.length, 0);
+      const minCount = sourceLoops.length <= targetCount ? 1 : 0;
+      const counts = sourceLoops.map((loop) => {
+        const exact = targetCount * loop.length / Math.max(1, totalLength);
+        const base = Math.max(minCount, Math.floor(exact));
+        return { loop, count: base, remainder: exact - Math.floor(exact) };
+      });
+
+      let countSum = counts.reduce((sum, entry) => sum + entry.count, 0);
+      while (countSum > targetCount) {
+        let best = -1;
+        for (let i = 0; i < counts.length; ++i) {
+          if (counts[i].count <= minCount) continue;
+          if (best < 0 || counts[i].remainder < counts[best].remainder) best = i;
+        }
+        if (best < 0) break;
+        counts[best].count -= 1;
+        countSum -= 1;
+      }
+
+      while (countSum < targetCount) {
+        let best = 0;
+        for (let i = 1; i < counts.length; ++i) {
+          if (counts[i].remainder > counts[best].remainder) best = i;
+        }
+        counts[best].count += 1;
+        counts[best].remainder = 0;
+        countSum += 1;
+      }
+
+      return counts;
+    }
+
+    function stitchLoops(loops, sampleCount, preserveOrder = false) {
+      const sourceLoops = preserveOrder
+        ? loops.filter((loop) => loop.length > 0)
+        : orderLoopsNearest(loops);
+      if (!sourceLoops.length) return [];
+
+      const totalLength = sourceLoops.reduce((sum, loop) => sum + loop.length, 0);
+      const targetCount = Math.max(2, sampleCount);
+      const breakCount = Math.max(0, sourceLoops.length - 1);
+      const transitionCount = breakCount > 0
+        ? Math.max(0, Math.min(8, Math.floor(targetCount * 0.25 / breakCount)))
+        : 0;
+      const strokeTargetCount = Math.max(2, targetCount - transitionCount * breakCount);
+      const counts = allocateSampleCounts(sourceLoops, strokeTargetCount);
+      const points = [];
+      const breaks = [];
+      for (const { loop, count } of counts) {
+        if (count <= 0) continue;
+        const loopPoints = sampleLoop(loop, count);
+        if (loopPoints.length < 1) continue;
+        if (points.length > 0) {
+          const from = points[points.length - 1];
+          const to = loopPoints[0];
+          for (let i = 1; i <= transitionCount; ++i) {
+            const t = i / (transitionCount + 1);
+            breaks.push(points.length);
+            points.push({
+              x: from.x + (to.x - from.x) * t,
+              y: from.y + (to.y - from.y) * t
+            });
+          }
+          breaks.push(points.length);
+        }
+        points.push(...loopPoints);
+      }
+
+      return points.length >= 2 ? [{ points, length: totalLength, breaks }] : [];
+    }
+
+    function combineSampledSources(sampledSources, sampleCount) {
+      const orderedSources = [];
+      const used = new Set();
+      let cursor = null;
+      while (orderedSources.length < sampledSources.length) {
+        let bestIndex = -1;
+        let bestDistance = Infinity;
+        if (!cursor && orderedSources.length === 0) {
+          for (let i = 0; i < sampledSources.length; ++i) {
+            if (!used.has(i) && sampledSources[i].loops.length) {
+              bestIndex = i;
+              break;
+            }
+          }
+        } else {
+          for (let i = 0; i < sampledSources.length; ++i) {
+            if (used.has(i) || !sampledSources[i].loops.length) continue;
+            const sourceBest = orderLoopsNearest(sampledSources[i].loops, cursor)[0];
+            if (!sourceBest) continue;
+            const start = loopStart(sourceBest);
+            const distance = Math.hypot(cursor.x - start.x, cursor.y - start.y);
+            if (distance < bestDistance) {
+              bestDistance = distance;
+              bestIndex = i;
+            }
+          }
+        }
+        if (bestIndex < 0) break;
+        used.add(bestIndex);
+        const sourceLoops = orderLoopsNearest(sampledSources[bestIndex].loops, cursor);
+        if (sourceLoops.length > 0) {
+          cursor = loopEnd(sourceLoops[sourceLoops.length - 1]);
+          orderedSources.push({ ...sampledSources[bestIndex], loops: sourceLoops });
+        }
+      }
+
+      const allLoops = orderedSources.flatMap((sampled) => sampled.loops);
+      const totalLength = allLoops.reduce((sum, loop) => sum + loop.length, 0);
+      return {
+        loops: stitchLoops(allLoops, sampleCount, true),
+        viewBox: sampledSources[0]?.viewBox || { x: 0, y: 0, width: 1, height: 1 },
+        pathCount: sampledSources.reduce((sum, sampled) => sum + sampled.pathCount, 0),
+        totalLength
+      };
+    }
+
+    async function sampleFullDftSource(sampleCount) {
+      const sampledSources = [];
+      if (state.componentFiles.length > 0) {
+        for (const file of state.componentFiles) {
+          const svg = await fetchOptionalSvgDocument(`results_api/${els.image.value}/comp/${file}`);
+          if (!svg) continue;
+          sampledSources.push(collectSvgLoops(svg));
+        }
+      }
+
+      if (sampledSources.length > 0) {
+        return combineSampledSources(sampledSources, sampleCount);
+      }
+
+      const svg = await fetchSvgDocument(backgroundUrl());
+      const sampled = collectSvgLoops(svg);
+      return {
+        ...sampled,
+        loops: stitchLoops(sampled.loops, sampleCount)
+      };
+    }
+
+    function computeDft(points) {
+      const n = points.length;
+      const half = Math.floor(n / 2);
+      const coeffs = [];
+
+      for (let k = 0; k < n; ++k) {
+        const freq = k <= half ? k : k - n;
+        let re = 0;
+        let im = 0;
+
+        for (let i = 0; i < n; ++i) {
+          const angle = -TAU * freq * i / n;
+          const cos = Math.cos(angle);
+          const sin = Math.sin(angle);
+          const x = points[i].x;
+          const y = points[i].y;
+          re += x * cos - y * sin;
+          im += x * sin + y * cos;
+        }
+
+        re /= n;
+        im /= n;
+        coeffs.push({
+          freq,
+          re,
+          im,
+          amp: Math.hypot(re, im),
+          phase: Math.atan2(im, re)
+        });
+      }
+
+      return coeffs;
+    }
+
+    function orderedCoefficients(coeffs) {
+      const dc = coeffs.find((coef) => coef.freq === 0);
+      const rest = coeffs.filter((coef) => coef.freq !== 0);
+
+      if (els.order.value === "frequency") {
+        const byFreq = new Map(rest.map((coef) => [coef.freq, coef]));
+        const natural = [];
+        const limit = Math.floor(coeffs.length / 2);
+        for (let freq = 1; freq <= limit; ++freq) {
+          if (byFreq.has(freq)) natural.push(byFreq.get(freq));
+          if (byFreq.has(-freq)) natural.push(byFreq.get(-freq));
+        }
+        return dc ? [dc, ...natural] : natural;
+      }
+
+      rest.sort((a, b) => b.amp - a.amp);
+      return dc ? [dc, ...rest] : rest;
+    }
+
+    function rebuildTrace() {
+      updateHarmonicLabel();
+      const arms = Number(els.harmonic.value);
+      const center = fixedCenterPoint();
+      for (const loop of state.loops) {
+        const ordered = orderedCoefficients(loop.coeffs);
+        loop.activeCoeffs = ordered.slice(0, Math.min(arms + 1, ordered.length));
+        loop.trace = loop.points.map((_, index) => reconstructAt(index / loop.points.length, loop.activeCoeffs, center));
+      }
+    }
+
+    function fixedCenterPoint() {
+      return {
+        x: state.viewBox.x + state.viewBox.width * 0.5,
+        y: state.viewBox.y + state.viewBox.height * 0.5
+      };
+    }
+
+    function reconstructAt(t, coeffs, center = fixedCenterPoint()) {
+      const fixedCenter = els.fixedCenter.checked;
+      let x = fixedCenter ? center.x : 0;
+      let y = fixedCenter ? center.y : 0;
+      for (const coef of coeffs) {
+        const angle = TAU * coef.freq * t;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const re = fixedCenter && coef.freq === 0 ? coef.re - center.x : coef.re;
+        const im = fixedCenter && coef.freq === 0 ? coef.im - center.y : coef.im;
+        x += re * cos - im * sin;
+        y += re * sin + im * cos;
+      }
+      return { x, y };
+    }
+
+    function epicycleAt(t, coeffs, center = fixedCenterPoint()) {
+      const points = [];
+      const dc = coeffs.find((coef) => coef.freq === 0);
+      const fixedCenter = els.fixedCenter.checked;
+      let x = fixedCenter ? center.x : (dc ? dc.re : 0);
+      let y = fixedCenter ? center.y : (dc ? dc.im : 0);
+      points.push({ x, y, radius: 0 });
+
+      for (const coef of coeffs) {
+        if (coef.freq === 0 && !fixedCenter) continue;
+        const angle = TAU * coef.freq * t;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const re = fixedCenter && coef.freq === 0 ? coef.re - center.x : coef.re;
+        const im = fixedCenter && coef.freq === 0 ? coef.im - center.y : coef.im;
+        const nextX = x + re * cos - im * sin;
+        const nextY = y + re * sin + im * cos;
+        points.push({ x: nextX, y: nextY, radius: Math.hypot(re, im), fromX: x, fromY: y });
+        x = nextX;
+        y = nextY;
+      }
+
+      return points;
+    }
+
+    function coeffArrayToObjects(coeffs) {
+      return (coeffs || []).map((coef) => ({
+        freq: coef[0],
+        re: coef[1],
+        im: coef[2],
+        amp: coef[3],
+        phase: Math.atan2(coef[2], coef[1])
+      }));
+    }
+
+    function pointArrayToObjects(points) {
+      return (points || []).map((point) => ({ x: point[0], y: point[1] }));
+    }
+
+    async function loadCurrentScene() {
+      const token = ++state.loadToken;
+      const url = dftDataUrl();
+      setStatus(`Loading ${url}`);
+      clearSavedComponentTrail();
+
+      try {
+        const response = await fetch(url, { cache: "no-store" });
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        const data = await response.json();
+        if (token !== state.loadToken) return;
+
+        const components = Array.isArray(data.components) ? data.components : [];
+        state.sceneData = {
+          ...data,
+          components: components.map((component) => ({
+            ...component,
+            points: pointArrayToObjects(component.points),
+            breaks: Array.isArray(component.breaks) ? component.breaks : [],
+            trace: pointArrayToObjects(component.trace),
+            coeffs: coeffArrayToObjects(component.coeffs)
+          }))
+        };
+        state.viewBox = {
+          x: data.viewBox?.x || 0,
+          y: data.viewBox?.y || 0,
+          width: data.viewBox?.width || 1,
+          height: data.viewBox?.height || 1
+        };
+        state.pathCount = state.sceneData.components.length;
+        state.totalLength = state.sceneData.components.reduce((sum, component) => sum + (component.length || 0), 0);
+        state.bgImage = new Image();
+        state.bgImage.src = backgroundUrl();
+        state.componentImage = null;
+        state.sceneTime = 0;
+        state.t = 0;
+        state.lastSceneFrame = 0;
+        updateStats();
+        updateSpeedLabel();
+        updateProgressLabel();
+        setStatus(`${data.image} / ${channelLabel(data.channel)} / ${data.mode}: ${state.sceneData.components.length} loops`);
+      } catch (err) {
+        if (token !== state.loadToken) return;
+        state.sceneData = null;
+        state.pathCount = 0;
+        state.totalLength = 0;
+        setStatus(`Scene load failed: ${err.message}. Run DFT Precompute first.`);
+      }
+    }
+
+    async function loadCurrentComponent() {
+      const token = ++state.loadToken;
+      const baseSampleCount = Number(els.sample.value);
+      const sampleCount = els.fullDft.checked && els.fullSamplesPerComponent.checked
+        ? Math.min(16384, baseSampleCount * Math.max(1, state.componentFiles.length || 1))
+        : baseSampleCount;
+      const url = componentUrl();
+      setStatus(els.fullDft.checked
+        ? `Loading component-ordered full SVG DFT (${sampleCount} samples)`
+        : `Loading ${url}`);
+
+      try {
+        const sampled = els.fullDft.checked
+          ? await sampleFullDftSource(sampleCount)
+          : sampleSvg(await fetchSvgDocument(url), sampleCount);
+        if (token !== state.loadToken) return;
+
+        const sourceLoops = sampled.loops;
+        state.loops = sourceLoops.map((loop) => ({
+          ...loop,
+          coeffs: computeDft(loop.points),
+          activeCoeffs: [],
+          trace: []
+        }));
+        rebuildComponentSchedule();
+        state.viewBox = sampled.viewBox;
+        state.pathCount = sampled.pathCount;
+        state.totalLength = sampled.totalLength;
+
+        state.componentImage = new Image();
+        state.componentImage.src = url;
+        state.bgImage = new Image();
+        state.bgImage.src = backgroundUrl();
+
+        updateHarmonicLabel();
+        rebuildTrace();
+        updateStats();
+        updateProgressLabel();
+        setStatus(`${els.image.value} / ${channelLabel(els.channel.value)} / ${sourceLabel()}`);
+      } catch (err) {
+        if (token !== state.loadToken) return;
+        state.loops = [];
+        setStatus(`Load failed: ${err.message}`);
+      }
+    }
+
+    function updateStats() {
+      els.pathCount.textContent = state.pathCount;
+      els.pathLength.textContent = Math.round(state.totalLength);
+      els.viewBoxText.textContent = `${Math.round(state.viewBox.width)} x ${Math.round(state.viewBox.height)}`;
+    }
+
+    function resizeCanvas() {
+      const rect = els.canvas.getBoundingClientRect();
+      const ratio = Math.max(1, window.devicePixelRatio || 1);
+      const width = Math.max(320, Math.floor(rect.width * ratio));
+      const height = Math.max(240, Math.floor(rect.height * ratio));
+      if (els.canvas.width !== width || els.canvas.height !== height) {
+        els.canvas.width = width;
+        els.canvas.height = height;
+      }
+    }
+
+    function getViewportTransform() {
+      const ratio = Math.max(1, window.devicePixelRatio || 1);
+      const cssWidth = els.canvas.width / ratio;
+      const cssHeight = els.canvas.height / ratio;
+      const padding = 28;
+      const vb = state.viewBox;
+      const scale = Math.min(
+        (cssWidth - padding * 2) / Math.max(1, vb.width),
+        (cssHeight - padding * 2) / Math.max(1, vb.height)
+      );
+      const offsetX = (cssWidth - vb.width * scale) * 0.5;
+      const offsetY = (cssHeight - vb.height * scale) * 0.5;
+      return { ratio, scale, offsetX, offsetY, vb, cssWidth, cssHeight };
+    }
+
+    function toScreen(point, transform) {
+      return {
+        x: transform.offsetX + (point.x - transform.vb.x) * transform.scale,
+        y: transform.offsetY + (point.y - transform.vb.y) * transform.scale
+      };
+    }
+
+    function drawPolyline(points, transform, color, width, closePath, limit, stride = 1) {
+      if (points.length < 2) return;
+      const end = Math.max(2, Math.min(points.length, limit || points.length));
+      const step = Math.max(1, stride || 1);
+
+      ctx.beginPath();
+      const first = toScreen(points[0], transform);
+      ctx.moveTo(first.x, first.y);
+      for (let i = 1; i < end; i += step) {
+        const p = toScreen(points[i], transform);
+        ctx.lineTo(p.x, p.y);
+      }
+      if (closePath && end >= points.length) ctx.closePath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.stroke();
+    }
+
+    function drawBrokenPolyline(points, breaks, transform, color, width, closePath, limit, stride = 1) {
+      if (points.length < 2) return;
+      const end = Math.max(2, Math.min(points.length, limit || points.length));
+      const sortedBreaks = (breaks || [])
+        .filter((index) => index > 0 && index < end)
+        .sort((a, b) => a - b);
+      const step = Math.max(1, stride || 1);
+      let breakCursor = 0;
+      let previousIndex = 0;
+
+      ctx.beginPath();
+      const first = toScreen(points[0], transform);
+      ctx.moveTo(first.x, first.y);
+      for (let i = 1; i < end; i += step) {
+        const p = toScreen(points[i], transform);
+        while (breakCursor < sortedBreaks.length && sortedBreaks[breakCursor] <= previousIndex) ++breakCursor;
+        const crossedBreak = breakCursor < sortedBreaks.length && sortedBreaks[breakCursor] <= i;
+        if (crossedBreak) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+        previousIndex = i;
+      }
+      if (closePath && sortedBreaks.length === 0 && end >= points.length) ctx.closePath();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.stroke();
+    }
+
+    function drawBrokenPolylineOn(context, points, breaks, transform, color, width, closePath, limit, stride = 1) {
+      if (points.length < 2) return;
+      const end = Math.max(2, Math.min(points.length, limit || points.length));
+      const sortedBreaks = (breaks || [])
+        .filter((index) => index > 0 && index < end)
+        .sort((a, b) => a - b);
+      const step = Math.max(1, stride || 1);
+      let breakCursor = 0;
+      let previousIndex = 0;
+
+      context.beginPath();
+      const first = toScreen(points[0], transform);
+      context.moveTo(first.x, first.y);
+      for (let i = 1; i < end; i += step) {
+        const p = toScreen(points[i], transform);
+        while (breakCursor < sortedBreaks.length && sortedBreaks[breakCursor] <= previousIndex) ++breakCursor;
+        const crossedBreak = breakCursor < sortedBreaks.length && sortedBreaks[breakCursor] <= i;
+        if (crossedBreak) context.moveTo(p.x, p.y);
+        else context.lineTo(p.x, p.y);
+        previousIndex = i;
+      }
+      if (closePath && sortedBreaks.length === 0 && end >= points.length) context.closePath();
+      context.strokeStyle = color;
+      context.lineWidth = width;
+      context.lineJoin = "round";
+      context.lineCap = "round";
+      context.stroke();
+    }
+
+    function drawFilteredTraceOn(context, tracePoints, sourcePoints, breaks, transform, color, width,
+                                 closePath, limit, stride = 1, deviationLimit = Infinity) {
+      if (tracePoints.length < 2) return;
+      const end = Math.max(2, Math.min(tracePoints.length, limit || tracePoints.length));
+      const sortedBreaks = (breaks || [])
+        .filter((index) => index > 0 && index < end)
+        .sort((a, b) => a - b);
+      const step = Math.max(1, stride || 1);
+      let breakCursor = 0;
+      let previousIndex = 0;
+      let previousDrawable = distance(tracePoints[0], sourcePoints?.[0]) <= deviationLimit;
+
+      context.beginPath();
+      const first = toScreen(tracePoints[0], transform);
+      context.moveTo(first.x, first.y);
+      for (let i = 1; i < end; i += step) {
+        const p = toScreen(tracePoints[i], transform);
+        while (breakCursor < sortedBreaks.length && sortedBreaks[breakCursor] <= previousIndex) ++breakCursor;
+        const crossedBreak = breakCursor < sortedBreaks.length && sortedBreaks[breakCursor] <= i;
+        const drawable = distance(tracePoints[i], sourcePoints?.[i]) <= deviationLimit;
+        if (crossedBreak || !previousDrawable || !drawable) context.moveTo(p.x, p.y);
+        else context.lineTo(p.x, p.y);
+        previousDrawable = drawable;
+        previousIndex = i;
+      }
+      if (closePath && sortedBreaks.length === 0 && end >= tracePoints.length) context.closePath();
+      context.strokeStyle = color;
+      context.lineWidth = width;
+      context.lineJoin = "round";
+      context.lineCap = "round";
+      context.stroke();
+    }
+
+    function drawImageInViewBox(image, transform, alpha) {
+      if (!image || !image.complete || image.naturalWidth === 0) return;
+      const topLeft = toScreen({ x: transform.vb.x, y: transform.vb.y }, transform);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(image, topLeft.x, topLeft.y, transform.vb.width * transform.scale, transform.vb.height * transform.scale);
+      ctx.restore();
+    }
+
+    function render() {
+      if (isSceneMode()) {
+        renderScene();
+        return;
+      }
+
+      resizeCanvas();
+      const transform = getViewportTransform();
+      ctx.setTransform(transform.ratio, 0, 0, transform.ratio, 0, 0);
+      ctx.clearRect(0, 0, transform.cssWidth, transform.cssHeight);
+
+      ctx.fillStyle = "#fbfaf6";
+      ctx.fillRect(0, 0, transform.cssWidth, transform.cssHeight);
+
+      if (els.showBackground.checked) {
+        drawImageInViewBox(state.bgImage, transform, 0.10);
+      }
+
+      if (!els.clearComponentTrail.checked && els.showTrace.checked) {
+        drawComponentTrail(transform);
+      }
+
+      if (els.showOriginal.checked) {
+        drawImageInViewBox(state.componentImage, transform, 0.18);
+        for (let i = 0; i < state.loops.length; ++i) {
+          const loop = state.loops[i];
+          if (componentLoopProgress(i) <= 0) continue;
+          drawBrokenPolyline(loop.points, loop.breaks, transform, "rgba(30, 36, 36, 0.32)", 1.15, false);
+        }
+      }
+
+      if (els.showTrace.checked) {
+        for (let i = 0; i < state.loops.length; ++i) {
+          const loop = state.loops[i];
+          const progress = componentLoopProgress(i);
+          if (progress <= 0) continue;
+          const limit = Math.max(2, Math.floor(progress * loop.trace.length));
+          drawBrokenPolyline(loop.trace, loop.breaks, transform, "rgba(8, 127, 140, 0.96)", 2.0, false, limit);
+        }
+      }
+
+      if (els.showArms.checked) {
+        drawEpicycles(transform);
+      }
+    }
+
+    function drawComponentTrail(transform) {
+      for (const [index, component] of state.componentTrail) {
+        if (index === currentComponentIndex()) continue;
+        for (const loop of component.loops) {
+          drawBrokenPolyline(loop.trace, loop.breaks, transform, "rgba(8, 127, 140, 0.34)", 1.75, false);
+        }
+      }
+    }
+
+    function sceneDrawProgress(component, cycleT) {
+      if (state.sceneData.mode === "simultaneous" || state.sceneData.mode === "full_svg") {
+        return cycleT;
+      }
+      if (cycleT < component.start) return 0;
+      if (cycleT >= component.end) return 1;
+      return (cycleT - component.start) / Math.max(0.000001, component.end - component.start);
+    }
+
+    function activeSequentialComponent(cycleT) {
+      if (!state.sceneData || state.sceneData.mode !== "sequential") return null;
+      return state.sceneData.components.find((component) => cycleT >= component.start && cycleT < component.end) || null;
+    }
+
+    function traceForComponent(component) {
+      if (!els.fixedCenter.checked) return component.trace || [];
+      if (!component.points || !component.coeffs) return [];
+      if (component.fixedTrace) return component.fixedTrace;
+      component.fixedTrace = component.points.map((_, index) => reconstructAt(index / component.points.length, component.coeffs));
+      return component.fixedTrace;
+    }
+
+    function ensureSceneFinalCanvas(transform) {
+      const data = state.sceneData;
+      if (!data) return null;
+      const key = `${data.image}/${data.channel}/${data.mode}/${els.fixedCenter.checked}/${transform.cssWidth}x${transform.cssHeight}/${transform.scale}`;
+      if (state.sceneOffscreen && state.sceneOffscreenKey === key) return state.sceneOffscreen;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.floor(transform.cssWidth));
+      canvas.height = Math.max(1, Math.floor(transform.cssHeight));
+      const off = canvas.getContext("2d");
+      off.fillStyle = "#fbfaf6";
+      off.fillRect(0, 0, canvas.width, canvas.height);
+      off.lineJoin = "round";
+      off.lineCap = "round";
+      off.strokeStyle = "rgba(8, 127, 140, 0.96)";
+      off.lineWidth = 2;
+
+      for (const component of data.components) {
+        const tracePoints = traceForComponent(component);
+        if (tracePoints.length < 2) continue;
+        drawFilteredTraceOn(off, tracePoints, component.points, component.breaks, transform,
+          "rgba(8, 127, 140, 0.96)", 2, false, tracePoints.length, data.drawStride || 1,
+          traceDeviationLimit(component));
+      }
+
+      state.sceneOffscreen = canvas;
+      state.sceneOffscreenKey = key;
+      return canvas;
+    }
+
+    function drawSceneTrace(component, transform, progress) {
+      if (!component.trace || component.trace.length < 2 || progress <= 0) return;
+      const stride = Math.max(1, state.sceneData.drawStride || 1);
+      const tracePoints = traceForComponent(component);
+      const continuous = clamp(progress, 0, 1) * tracePoints.length;
+      const end = Math.max(2, Math.min(tracePoints.length, Math.floor(continuous)));
+
+      ctx.beginPath();
+      const first = toScreen(tracePoints[0], transform);
+      ctx.moveTo(first.x, first.y);
+      const allBreaks = (component.breaks || []).filter((index) => index > 0 && index <= end);
+      const breaks = allBreaks.filter((index) => index < end);
+      let breakCursor = 0;
+      let previousIndex = 0;
+      const deviationLimit = traceDeviationLimit(component);
+      let previousDrawable = distance(tracePoints[0], component.points?.[0]) <= deviationLimit;
+      let previousDrewLine = false;
+      for (let i = 1; i < end; i += stride) {
+        const p = toScreen(tracePoints[i], transform);
+        while (breakCursor < breaks.length && breaks[breakCursor] <= previousIndex) ++breakCursor;
+        const crossedBreak = breakCursor < breaks.length && breaks[breakCursor] <= i;
+        const drawable = distance(tracePoints[i], component.points?.[i]) <= deviationLimit;
+        if (crossedBreak || !previousDrawable || !drawable) {
+          ctx.moveTo(p.x, p.y);
+          previousDrewLine = false;
+        } else {
+          ctx.lineTo(p.x, p.y);
+          previousDrewLine = true;
+        }
+        previousDrawable = drawable;
+        previousIndex = i;
+      }
+      const breaksBeforeTip = allBreaks.some((index) => index > previousIndex && index <= end);
+      const tipDrawable = end < tracePoints.length && distance(tracePoints[end - 1], component.points?.[end - 1]) <= deviationLimit;
+      if (end < tracePoints.length && previousDrewLine && !breaksBeforeTip && tipDrawable) {
+        const tip = toScreen(reconstructAt(progress, component.coeffs), transform);
+        ctx.lineTo(tip.x, tip.y);
+      }
+      ctx.strokeStyle = "rgba(8, 127, 140, 0.96)";
+      ctx.lineWidth = 2;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.stroke();
+    }
+
+    function drawSceneArms(component, transform, progress) {
+      if (!component || !component.coeffs || component.coeffs.length === 0) return;
+      const arms = epicycleAt(clamp(progress, 0, 1), component.coeffs);
+      const visibility = armVisibility();
+      ctx.save();
+      ctx.lineWidth = Math.max(1, visibility);
+      for (let i = 1; i < arms.length; ++i) {
+        const arm = arms[i];
+        const center = toScreen({ x: arm.fromX, y: arm.fromY }, transform);
+        const tip = toScreen({ x: arm.x, y: arm.y }, transform);
+        const radius = Math.abs(arm.radius * transform.scale);
+
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, radius, 0, TAU);
+        ctx.strokeStyle = `rgba(184, 107, 37, ${clamp(0.11 * visibility, 0.03, 0.45)})`;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(center.x, center.y);
+        ctx.lineTo(tip.x, tip.y);
+        ctx.strokeStyle = `rgba(184, 107, 37, ${clamp(0.50 * visibility, 0.12, 1)})`;
+        ctx.stroke();
+      }
+
+      const end = arms[arms.length - 1];
+      const endPoint = toScreen({ x: end.x, y: end.y }, transform);
+      ctx.beginPath();
+      ctx.arc(endPoint.x, endPoint.y, 1.8 + visibility * 0.8, 0, TAU);
+      ctx.fillStyle = "#b23a48";
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function renderScene() {
+      resizeCanvas();
+      const transform = getViewportTransform();
+      ctx.setTransform(transform.ratio, 0, 0, transform.ratio, 0, 0);
+      ctx.clearRect(0, 0, transform.cssWidth, transform.cssHeight);
+
+      ctx.fillStyle = "#fbfaf6";
+      ctx.fillRect(0, 0, transform.cssWidth, transform.cssHeight);
+
+      const data = state.sceneData;
+      if (!data) return;
+
+      if (els.showBackground.checked) {
+        drawImageInViewBox(state.bgImage, transform, 0.08);
+      }
+
+      const cycleMs = Math.max(1000, (data.duration || 60) * 1000);
+      const holdMs = Math.max(0, (data.hold || 0) * 1000);
+      const cycleTotal = cycleMs + holdMs;
+      const localMs = state.sceneTime % cycleTotal;
+      const inHold = localMs >= cycleMs;
+      const cycleT = inHold ? 1 : localMs / cycleMs;
+
+      if (inHold) {
+        const finalCanvas = ensureSceneFinalCanvas(transform);
+        if (finalCanvas) ctx.drawImage(finalCanvas, 0, 0);
+        return;
+      }
+
+      for (const component of data.components) {
+        const progress = sceneDrawProgress(component, cycleT);
+        if (progress > 0 && els.showTrace.checked) {
+          drawSceneTrace(component, transform, progress);
+        }
+      }
+
+      if (els.showOriginal.checked) {
+        const sourceStride = Math.max(1, state.sceneData.drawStride || 1);
+        for (const component of data.components) {
+          const progress = sceneDrawProgress(component, cycleT);
+          if (progress > 0 && component.points) {
+            drawBrokenPolyline(component.points, component.breaks, transform, "rgba(30, 36, 36, 0.18)", 1.0, false, component.points.length, sourceStride);
+          }
+        }
+      }
+
+      if (els.showArms.checked) {
+        if (data.mode === "sequential") {
+          const active = activeSequentialComponent(cycleT);
+          if (active) drawSceneArms(active, transform, sceneDrawProgress(active, cycleT));
+        } else {
+          for (const component of data.components) {
+            if (!component.showArms) continue;
+            drawSceneArms(component, transform, cycleT);
+          }
+        }
+      }
+    }
+
+    function drawEpicycles(transform) {
+      const visibility = armVisibility();
+      ctx.save();
+      ctx.lineWidth = Math.max(1, visibility);
+
+      for (let i = 0; i < state.loops.length; ++i) {
+        const loop = state.loops[i];
+        const progress = componentLoopProgress(i);
+        if (progress <= 0 || (els.sceneMode.value === "sequential" && progress >= 1)) continue;
+        if (!loop.activeCoeffs || loop.activeCoeffs.length === 0) continue;
+        const arms = epicycleAt(progress, loop.activeCoeffs);
+        for (let i = 1; i < arms.length; ++i) {
+          const arm = arms[i];
+          const center = toScreen({ x: arm.fromX, y: arm.fromY }, transform);
+          const tip = toScreen({ x: arm.x, y: arm.y }, transform);
+          const radius = Math.abs(arm.radius * transform.scale);
+
+          ctx.beginPath();
+          ctx.arc(center.x, center.y, radius, 0, TAU);
+          ctx.strokeStyle = `rgba(184, 107, 37, ${clamp(0.12 * visibility, 0.03, 0.50)})`;
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(center.x, center.y);
+          ctx.lineTo(tip.x, tip.y);
+          ctx.strokeStyle = `rgba(184, 107, 37, ${clamp(0.55 * visibility, 0.14, 1)})`;
+          ctx.stroke();
+        }
+
+        const end = arms[arms.length - 1];
+        const endPoint = toScreen({ x: end.x, y: end.y }, transform);
+        ctx.beginPath();
+        ctx.arc(endPoint.x, endPoint.y, 1.9 + visibility * 0.9, 0, TAU);
+        ctx.fillStyle = "#b23a48";
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function selectRecordingFormat() {
+      const formats = [
+        { mime: "video/mp4;codecs=avc1.42E01E", extension: "mp4" },
+        { mime: "video/mp4;codecs=h264", extension: "mp4" },
+        { mime: "video/mp4", extension: "mp4" },
+        { mime: "video/webm;codecs=vp9", extension: "webm" },
+        { mime: "video/webm;codecs=vp8", extension: "webm" },
+        { mime: "video/webm", extension: "webm" }
+      ];
+
+      if (!MediaRecorder.isTypeSupported) {
+        return formats[formats.length - 1];
+      }
+
+      return formats.find((format) => MediaRecorder.isTypeSupported(format.mime)) || formats[formats.length - 1];
+    }
+
+    function setComponentIndex(index) {
+      const count = currentCount();
+      const next = clamp(index, 0, count - 1);
+      els.componentRange.value = next;
+      els.componentNumber.value = next;
+      els.componentSelect.value = String(next);
+    }
+
+    function stepComponent(delta, options = {}) {
+      if (options.captureTrail) {
+        rememberOrClearComponentTrail();
+      }
+      const count = currentCount();
+      const next = (currentComponentIndex() + delta + count) % count;
+      if (next === 0 && delta > 0 && els.clearComponentTrail.checked) {
+        clearSavedComponentTrail();
+      }
+      setComponentIndex(next);
+      updateComponentControls();
+      state.t = 0;
+      updateProgressLabel();
+      loadCurrentComponent();
+    }
+
+    async function recordClip() {
+      if (state.recording || !els.canvas.captureStream || typeof MediaRecorder === "undefined") {
+        setStatus("Recording is not available in this browser");
+        return;
+      }
+
+      state.recording = true;
+      els.record.disabled = true;
+      els.record.textContent = "Recording";
+
+      const stream = els.canvas.captureStream(60);
+      const format = selectRecordingFormat();
+      const recordMs = Math.max(1000, state.recordSeconds * 1000);
+      const recorder = new MediaRecorder(stream, { mimeType: format.mime });
+      const chunks = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: format.mime });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        const stem = sourceLabel().replace(/\.svg$/i, "");
+        link.download = `${els.image.value}_${stem}${els.fixedCenter.checked ? "_center" : ""}_dft.${format.extension}`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+        state.recording = false;
+        els.record.disabled = false;
+        updateRecordLabel();
+        setStatus(`Saved ${format.extension.toUpperCase()} recording`);
+      };
+
+      recorder.start();
+      setStatus(`Recording ${format.extension.toUpperCase()} ${(recordMs / 1000).toFixed(1)}s`);
+      setTimeout(() => recorder.stop(), recordMs);
+    }
+
+    let lastFrame = performance.now();
+    function frame(now) {
+      const dt = Math.min(0.05, (now - lastFrame) / 1000);
+      lastFrame = now;
+
+      if (state.playing && !state.seeking) {
+        const previous = state.t;
+        const speed = Number(els.speed.value);
+        if (isSceneMode()) {
+          state.sceneTime += dt * speed * 1000;
+        } else {
+          state.t = (state.t + dt * speed / 8) % 1;
+          if (els.autoCycle.checked && previous > state.t) {
+            stepComponent(1, { captureTrail: true });
+          }
+        }
+      }
+
+      const fps = isSceneMode() ? (state.sceneData?.targetFps || 0) : 0;
+      const shouldRender = !fps || now - state.lastSceneFrame >= 1000 / fps;
+      if (shouldRender) {
+        if (isSceneMode()) state.lastSceneFrame = now;
+        render();
+      }
+      updateProgressLabel();
+      requestAnimationFrame(frame);
+    }
+
+    function bindEvents() {
+      els.image.addEventListener("change", async () => {
+        setComponentIndex(0);
+        clearSavedComponentTrail();
+        await refreshComponentList();
+        updateComponentControls();
+        state.t = 0;
+        state.sceneTime = 0;
+        updateProgressLabel();
+        if (isSceneMode()) loadCurrentScene();
+        else loadCurrentComponent();
+      });
+
+      els.channel.addEventListener("change", async () => {
+        setComponentIndex(0);
+        clearSavedComponentTrail();
+        await refreshComponentList();
+        updateComponentControls();
+        state.t = 0;
+        state.sceneTime = 0;
+        updateProgressLabel();
+        if (isSceneMode()) loadCurrentScene();
+        else loadCurrentComponent();
+      });
+
+      els.viewMode.addEventListener("change", setViewMode);
+
+      els.sceneMode.addEventListener("change", () => {
+        state.t = 0;
+        state.sceneTime = 0;
+        state.sceneOffscreen = null;
+        state.sceneOffscreenKey = "";
+        updateProgressLabel();
+        if (isSceneMode()) {
+          loadCurrentScene();
+        } else {
+          render();
+        }
+      });
+
+      els.componentRange.addEventListener("input", () => {
+        els.componentNumber.value = els.componentRange.value;
+      });
+      els.componentRange.addEventListener("change", () => {
+        clearSavedComponentTrail();
+        state.t = 0;
+        updateProgressLabel();
+        loadCurrentComponent();
+      });
+
+      els.componentSelect.addEventListener("change", () => {
+        rememberOrClearComponentTrail();
+        setComponentIndex(Number(els.componentSelect.value));
+        state.t = 0;
+        updateProgressLabel();
+        loadCurrentComponent();
+      });
+
+      els.componentNumber.addEventListener("change", () => {
+        rememberOrClearComponentTrail();
+        setComponentIndex(Number(els.componentNumber.value));
+        state.t = 0;
+        updateProgressLabel();
+        loadCurrentComponent();
+      });
+
+      els.reload.addEventListener("click", async () => {
+        rememberOrClearComponentTrail();
+        await refreshComponentList();
+        updateComponentControls();
+        if (isSceneMode()) loadCurrentScene();
+        else loadCurrentComponent();
+      });
+      els.prev.addEventListener("click", () => {
+        stepComponent(-1, { captureTrail: true });
+      });
+      els.next.addEventListener("click", () => {
+        stepComponent(1, { captureTrail: true });
+      });
+
+      els.sample.addEventListener("change", () => {
+        clearSavedComponentTrail();
+        state.t = 0;
+        updateProgressLabel();
+        loadCurrentComponent();
+      });
+
+      els.fullDft.addEventListener("change", () => {
+        clearSavedComponentTrail();
+        state.t = 0;
+        updateProgressLabel();
+        loadCurrentComponent();
+      });
+      els.fullSamplesPerComponent.addEventListener("change", () => {
+        clearSavedComponentTrail();
+        state.t = 0;
+        updateProgressLabel();
+        loadCurrentComponent();
+      });
+
+      els.order.addEventListener("change", rebuildTrace);
+      els.harmonic.addEventListener("input", rebuildTrace);
+      els.fixedCenter.addEventListener("change", () => {
+        state.sceneOffscreen = null;
+        state.sceneOffscreenKey = "";
+        if (isSceneMode()) render();
+        else {
+          rebuildTrace();
+          render();
+        }
+      });
+      els.clearComponentTrail.addEventListener("change", () => {
+        if (els.clearComponentTrail.checked) clearSavedComponentTrail();
+        render();
+      });
+      els.armVisibility.addEventListener("input", () => {
+        updateArmVisibilityLabel();
+        render();
+      });
+
+      els.speed.addEventListener("input", updateSpeedLabel);
+      els.progress.addEventListener("input", () => {
+        state.seeking = true;
+        seekToProgress(els.progress.value);
+      });
+      els.progress.addEventListener("change", () => {
+        state.seeking = false;
+        seekToProgress(els.progress.value);
+      });
+      els.play.addEventListener("click", () => {
+        state.playing = !state.playing;
+        els.play.textContent = state.playing ? "Pause" : "Play";
+      });
+
+      els.record.addEventListener("click", recordClip);
+      els.upload.addEventListener("click", async () => {
+        try {
+          const upload = await uploadSelectedFile();
+          if (upload) setStatus(`Uploaded ${upload.path}`);
+        } catch (err) {
+          setTaskLog(`Error: ${err.message}`);
+        }
+      });
+      els.extract.addEventListener("click", runExtraction);
+      els.precompute.addEventListener("click", runPrecompute);
+      els.precomputeMode.addEventListener("change", () => {
+        if (sceneModes.includes(els.precomputeMode.value)) {
+          els.sceneParamMode.value = els.precomputeMode.value;
+          loadSceneParamControls();
+        }
+      });
+      els.sceneParamMode.addEventListener("change", loadSceneParamControls);
+      els.sceneSamples.addEventListener("input", () => setSceneParamOverride("samples", els.sceneSamples.value));
+      els.sceneArms.addEventListener("input", () => setSceneParamOverride("arms", els.sceneArms.value));
+      els.sceneMinLoopSamples.addEventListener("input", () => setSceneParamOverride("min_loop_samples", els.sceneMinLoopSamples.value));
+      els.sceneMinLoopLength.addEventListener("input", () => setSceneParamOverride("min_loop_length", els.sceneMinLoopLength.value));
+      els.sceneMaxLoopEnabled.addEventListener("change", () => setSceneMaxLoopEnabled(els.sceneMaxLoopEnabled.checked));
+      els.sceneMaxLoopLength.addEventListener("input", () => setSceneParamOverride("max_loop_length", els.sceneMaxLoopLength.value));
+      els.sceneSmoothPasses.addEventListener("input", () => setSceneParamOverride("smooth_passes", els.sceneSmoothPasses.value));
+      els.sceneDuration.addEventListener("input", () => setSceneParamOverride("duration", els.sceneDuration.value));
+      els.sceneFps.addEventListener("input", () => setSceneParamOverride("target_fps", els.sceneFps.value));
+      els.sceneDrawStride.addEventListener("input", () => setSceneParamOverride("draw_stride", els.sceneDrawStride.value));
+      els.sceneComponentPower.addEventListener("input", () => setSceneParamOverride("component_time_power", els.sceneComponentPower.value));
+      els.sceneSimArmParts.addEventListener("input", () => setSceneParamOverride("sim_arm_parts", els.sceneSimArmParts.value));
+      els.fullSvgOrder.addEventListener("change", () => setSceneParamOverride("order", els.fullSvgOrder.value));
+      els.fullSvgCoeffOrder.addEventListener("change", () => setSceneParamOverride("coefficient_order", els.fullSvgCoeffOrder.value));
+
+      for (const checkbox of [els.showBackground, els.showOriginal, els.showArms, els.showTrace]) {
+        checkbox.addEventListener("change", render);
+      }
+
+      window.addEventListener("resize", () => {
+        state.sceneOffscreen = null;
+        state.sceneOffscreenKey = "";
+        render();
+      });
+    }
+
+    async function boot() {
+      bindEvents();
+      await loadViewerConfig();
+      await refreshImageList();
+      await refreshComponentList();
+      updateComponentControls();
+      updateSpeedLabel();
+      updateArmVisibilityLabel();
+      setViewMode();
+      requestAnimationFrame(frame);
+    }
+
+    boot();
+  </script>
+</body>
+</html>

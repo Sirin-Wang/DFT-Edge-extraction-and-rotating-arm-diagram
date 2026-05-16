@@ -1,0 +1,34 @@
+# Local secrets
+api_line_config.ini
+local_environment.ps1
+
+# Build outputs
+.vs/
+x64/
+Fourier-api-approach/x64/
+dist/
+*.zip
+*.7z
+
+# Runtime/generated data
+results_api/
+results_api_*/
+uploads/
+/Anime2sketch/
+/informativedrawings/
+temp_configs/
+chat_stream_test.sse
+small_api_test.png
+viewer_server*.log
+*.err.log
+temp_*.cpp
+
+# Editor/system noise
+*.user
+*.suo
+*.VC.db
+*.pdb
+*.ilk
+*.obj
+*.tlog
+*.lastbuildstate
